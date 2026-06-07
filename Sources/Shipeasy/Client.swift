@@ -12,11 +12,25 @@ public actor Client {
     private var pollIntervalSec: Int = 30
     private var pollTask: Task<Void, Never>?
     private var initialized = false
+    private let telemetry: Telemetry
 
-    public init(apiKey: String, baseURL: URL = URL(string: "https://edge.shipeasy.dev")!, session: URLSession = .shared) {
+    public init(
+        apiKey: String,
+        baseURL: URL = URL(string: "https://edge.shipeasy.dev")!,
+        session: URLSession = .shared,
+        env: String = "prod",
+        disableTelemetry: Bool = false,
+        telemetryURL: String = Telemetry.defaultURL
+    ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.session = session
+        // Per-evaluation usage telemetry. ON by default; pass
+        // disableTelemetry: true to opt out. See Telemetry.swift.
+        self.telemetry = Telemetry(
+            endpoint: telemetryURL, sdkKey: apiKey, side: "server",
+            env: env, disabled: disableTelemetry, session: session
+        )
     }
 
     public func initialize() async throws {
@@ -37,17 +51,20 @@ public actor Client {
     }
 
     public func getFlag(_ name: String, user: [String: Any]) -> Bool {
+        telemetry.emit("gate", name)
         let gates = flagsBlob?["gates"] as? [String: Any]
         return Eval.evalGate(gates?[name] as? [String: Any], user)
     }
 
     public func getConfig(_ name: String) -> Any? {
+        telemetry.emit("config", name)
         let configs = flagsBlob?["configs"] as? [String: Any]
         let entry = configs?[name] as? [String: Any]
         return entry?["value"]
     }
 
     public func getExperiment(_ name: String, user: [String: Any], defaultParams: Any?) -> ExperimentResult {
+        telemetry.emit("experiment", name)
         let exps = expsBlob?["experiments"] as? [String: Any]
         let exp = exps?[name] as? [String: Any]
         let r = Eval.evalExperiment(exp, flagsBlob, expsBlob, user)
