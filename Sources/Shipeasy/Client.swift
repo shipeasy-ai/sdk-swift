@@ -20,7 +20,7 @@ public actor Client {
         session: URLSession = .shared,
         env: String = "prod",
         disableTelemetry: Bool = false,
-        telemetryURL: String = Telemetry.defaultURL
+        telemetryURL: String = "https://t.shipeasy.ai"
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
