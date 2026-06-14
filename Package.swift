@@ -9,6 +9,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "Shipeasy"),
-        .testTarget(name: "ShipeasyTests", dependencies: ["Shipeasy"]),
+        .testTarget(
+            name: "ShipeasyTests",
+            dependencies: ["Shipeasy"],
+            resources: [.copy("Fixtures/eval-vectors.json")]
+        ),
     ]
 )
