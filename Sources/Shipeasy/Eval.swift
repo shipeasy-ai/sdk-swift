@@ -73,9 +73,16 @@ enum Eval {
         for r in (gate["rules"] as? [[String: Any]] ?? []) {
             if !matchRule(r, user) { return false }
         }
-        guard let uid = userId(user) else { return false }
-        let salt = (gate["salt"] as? String) ?? ""
         let rolloutPct = (gate["rolloutPct"] as? Int) ?? Int((gate["rolloutPct"] as? Double) ?? 0)
+        guard let uid = userId(user) else {
+            // No unit id (an unidentified request before any anon id is minted):
+            // a fully-rolled gate is on for everyone, so it can be answered
+            // without bucketing; a fractional rollout needs a stable unit, so
+            // deny until one exists. Rules above still apply, so targeting wins.
+            // See experiment-platform/18-identity-bucketing.md.
+            return rolloutPct >= 10000
+        }
+        let salt = (gate["salt"] as? String) ?? ""
         return Murmur3.bucket("\(salt):\(uid)", mod: 10000) < UInt32(rolloutPct)
     }
 
