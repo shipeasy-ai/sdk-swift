@@ -14,6 +14,19 @@ public actor Client {
     private var initialized = false
     private let telemetry: Telemetry
 
+    // Local test mode: when true the client performs no network I/O. Network
+    // init/poll are no-ops, the client is immediately "ready", and track(...)
+    // is a no-op. Built only via `forTesting()`.
+    private let localMode: Bool
+
+    // Local overrides (Statsig-style). When set, an override wins over the
+    // evaluated value in the matching getter. Usable on any client; on a
+    // `forTesting()` client they are the only source of values. Access is
+    // confined to the actor, like flagsBlob/expsBlob.
+    private var flagOverrides: [String: Bool] = [:]
+    private var configOverrides: [String: Any?] = [:]
+    private var experimentOverrides: [String: ExperimentResult] = [:]
+
     public init(
         apiKey: String,
         baseURL: URL = URL(string: "https://edge.shipeasy.dev")!,
@@ -25,6 +38,7 @@ public actor Client {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.session = session
+        self.localMode = false
         // Per-evaluation usage telemetry. ON by default; pass
         // disableTelemetry: true to opt out. See Telemetry.swift.
         self.telemetry = Telemetry(
@@ -33,16 +47,64 @@ public actor Client {
         )
     }
 
+    // Private designated init for the local test client. No API key is needed
+    // and telemetry is force-disabled (empty key/endpoint disables it anyway).
+    private init(localMode: Bool) {
+        self.apiKey = ""
+        self.baseURL = URL(string: "https://edge.shipeasy.dev")!
+        self.session = .shared
+        self.localMode = localMode
+        self.initialized = true
+        self.telemetry = Telemetry(
+            endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
+        )
+    }
+
+    /// Build a no-network, immediately-usable client for tests. Telemetry is
+    /// disabled, `initialize()`/`initializeOnce()` are no-ops, `track(...)` is a
+    /// no-op, and no API key is required. Seed values with the `override*`
+    /// setters; everything else evaluates against the (empty) local state.
+    public static func forTesting() -> Client {
+        Client(localMode: true)
+    }
+
     public func initialize() async throws {
+        if localMode { return }
         try await fetchAll()
         initialized = true
         startPoll()
     }
 
     public func initializeOnce() async throws {
+        if localMode { return }
         guard !initialized else { return }
         try await fetchAll()
         initialized = true
+    }
+
+    // MARK: - Local overrides
+
+    /// Force `getFlag(name:...)` to return `value` regardless of the live blob.
+    public func overrideFlag(_ name: String, _ value: Bool) {
+        flagOverrides[name] = value
+    }
+
+    /// Force `getConfig(name)` to return `value` regardless of the live blob.
+    public func overrideConfig(_ name: String, _ value: Any?) {
+        configOverrides[name] = value
+    }
+
+    /// Force `getExperiment(name:...)` to return an in-experiment result with
+    /// the given group + params, regardless of the live blob.
+    public func overrideExperiment(_ name: String, group: String, params: Any?) {
+        experimentOverrides[name] = ExperimentResult(inExperiment: true, group: group, params: params)
+    }
+
+    /// Drop all local overrides; subsequent reads fall back to live evaluation.
+    public func clearOverrides() {
+        flagOverrides.removeAll()
+        configOverrides.removeAll()
+        experimentOverrides.removeAll()
     }
 
     public func destroy() {
@@ -51,12 +113,14 @@ public actor Client {
     }
 
     public func getFlag(_ name: String, user: [String: Any]) -> Bool {
+        if let override = flagOverrides[name] { return override }
         telemetry.emit("gate", name)
         let gates = flagsBlob?["gates"] as? [String: Any]
         return Eval.evalGate(gates?[name] as? [String: Any], user)
     }
 
     public func getConfig(_ name: String) -> Any? {
+        if configOverrides.keys.contains(name) { return configOverrides[name] ?? nil }
         telemetry.emit("config", name)
         let configs = flagsBlob?["configs"] as? [String: Any]
         let entry = configs?[name] as? [String: Any]
@@ -64,6 +128,7 @@ public actor Client {
     }
 
     public func getExperiment(_ name: String, user: [String: Any], defaultParams: Any?) -> ExperimentResult {
+        if let override = experimentOverrides[name] { return override }
         telemetry.emit("experiment", name)
         let exps = expsBlob?["experiments"] as? [String: Any]
         let exp = exps?[name] as? [String: Any]
@@ -75,6 +140,7 @@ public actor Client {
     }
 
     public func track(userId: String, eventName: String, properties: [String: Any]? = nil) {
+        if localMode { return }
         var event: [String: Any] = [
             "type": "metric",
             "event_name": eventName,

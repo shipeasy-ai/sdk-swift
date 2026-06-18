@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Local-override test utility.** `Client.forTesting()` builds a no-network,
+  no-key, immediately-ready client (`initialize()`/`initializeOnce()` and
+  `track(...)` are no-ops, telemetry disabled). New override setters —
+  `overrideFlag(_:_:)`, `overrideConfig(_:_:)`,
+  `overrideExperiment(_:group:params:)`, and `clearOverrides()` — let tests seed
+  deterministic values; an override always wins over live evaluation. The
+  setters also work on a normal network-backed client. See the README "Testing"
+  section.
+
 ## 0.3.0
 
 - **Anonymous bucketing (`__se_anon_id`).** Added `AnonId` — Foundation-only
