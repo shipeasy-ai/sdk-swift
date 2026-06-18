@@ -1,5 +1,38 @@
 import Foundation
 
+/// Why a flag resolved to its value. Computed at the SDK boundary (see
+/// `Client.getFlagDetail`) without touching the canonical eval in `Eval`.
+public enum FlagReason: String, Sendable {
+    /// Client never finished an initial fetch, so there is no live blob.
+    case clientNotReady = "CLIENT_NOT_READY"
+    /// The gate name is not present in the flags blob.
+    case flagNotFound = "FLAG_NOT_FOUND"
+    /// The gate exists but is disabled (or killed).
+    case off = "OFF"
+    /// A local override (set via `overrideFlag`) supplied the value.
+    case override = "OVERRIDE"
+    /// The gate evaluated to `true` for this user (rules + rollout matched).
+    case ruleMatch = "RULE_MATCH"
+    /// The gate evaluated to `false` for this user (default — not targeted).
+    case `default` = "DEFAULT"
+}
+
+/// The result of evaluating a flag plus the reason it resolved that way.
+public struct FlagDetail: Sendable {
+    public let value: Bool
+    public let reason: String
+
+    public init(value: Bool, reason: String) {
+        self.value = value
+        self.reason = reason
+    }
+
+    init(value: Bool, reason: FlagReason) {
+        self.value = value
+        self.reason = reason.rawValue
+    }
+}
+
 public actor Client {
     private let apiKey: String
     private let baseURL: URL
@@ -26,6 +59,14 @@ public actor Client {
     private var flagOverrides: [String: Bool] = [:]
     private var configOverrides: [String: Any?] = [:]
     private var experimentOverrides: [String: ExperimentResult] = [:]
+
+    // Change listeners (Feature C). Fire after a fetch applies NEW data (a 200,
+    // not a 304). With the background poll running this fires on each refresh
+    // that brings new data; without it, listeners fire on the next manual fetch
+    // that applies new data. Never fired in localMode. Keyed by a monotonic id
+    // so unsubscribe can remove the exact registration.
+    private var changeListeners: [Int: @Sendable () -> Void] = [:]
+    private var nextListenerId = 0
 
     public init(
         apiKey: String,
@@ -68,6 +109,45 @@ public actor Client {
         Client(localMode: true)
     }
 
+    // Private designated init for an offline, snapshot-backed client. Loads the
+    // blob fields directly, runs in localMode (no network), is immediately
+    // initialized, and force-disables telemetry. Overrides apply on top.
+    private init(snapshotFlags: [String: Any]?, snapshotExperiments: [String: Any]?) {
+        self.apiKey = ""
+        self.baseURL = URL(string: "https://edge.shipeasy.dev")!
+        self.session = .shared
+        self.localMode = true
+        self.initialized = true
+        self.flagsBlob = snapshotFlags
+        self.expsBlob = snapshotExperiments
+        self.telemetry = Telemetry(
+            endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
+        )
+    }
+
+    /// Build an offline client from in-memory snapshot blobs (Feature D). `flags`
+    /// is the body of `/sdk/flags` (e.g. `["gates": …, "configs": …]`) and
+    /// `experiments` the body of `/sdk/experiments` (e.g. `["experiments": …,
+    /// "universes": …]`). The client performs no network I/O, is immediately
+    /// ready, telemetry is off, `initialize()`/`initializeOnce()`/`track(...)`
+    /// are no-ops, and evaluations run the real eval against the snapshot.
+    /// Overrides apply on top.
+    public static func fromSnapshot(flags: [String: Any], experiments: [String: Any]) -> Client {
+        Client(snapshotFlags: flags, snapshotExperiments: experiments)
+    }
+
+    /// Build an offline client from a JSON file (Feature D). The file is a JSON
+    /// object `{ "flags": <body of /sdk/flags>, "experiments": <body of
+    /// /sdk/experiments> }`. Parsed with `JSONSerialization`, matching how the
+    /// live blobs are decoded. Behaves exactly like `fromSnapshot`.
+    public static func fromFile(_ path: String) throws -> Client {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let flags = root?["flags"] as? [String: Any]
+        let experiments = root?["experiments"] as? [String: Any]
+        return Client(snapshotFlags: flags, snapshotExperiments: experiments)
+    }
+
     public func initialize() async throws {
         if localMode { return }
         try await fetchAll()
@@ -107,24 +187,117 @@ public actor Client {
         experimentOverrides.removeAll()
     }
 
+    // MARK: - Change listeners
+
+    /// Register a listener fired after a fetch applies NEW data (a 200 — not a
+    /// 304). When the background poll is running (after `initialize()`), this
+    /// fires on each poll that brings new data; on a client that does not poll
+    /// in the background, listeners fire on the next fetch that applies new data
+    /// (i.e. on refresh). Never fired in `localMode`. Returns an unsubscribe
+    /// closure; call it to stop receiving notifications.
+    @discardableResult
+    public func onChange(_ listener: @escaping @Sendable () -> Void) -> @Sendable () -> Void {
+        let id = nextListenerId
+        nextListenerId += 1
+        changeListeners[id] = listener
+        return { [weak self] in
+            guard let self = self else { return }
+            Task { await self.removeListener(id) }
+        }
+    }
+
+    private func removeListener(_ id: Int) {
+        changeListeners[id] = nil
+    }
+
+    // Invoke every registered listener safely. Listener bodies are isolated from
+    // each other — a crash in one would only affect that closure. Skipped in
+    // localMode.
+    private func notifyChange() {
+        if localMode { return }
+        for listener in changeListeners.values {
+            listener()
+        }
+    }
+
+    // Internal seam: apply freshly-fetched blobs and fire change listeners. The
+    // fetch path calls this only when it actually applied NEW data; tests drive
+    // it directly to exercise the listener contract without the network.
+    func applyData(flags: [String: Any]?, experiments: [String: Any]?, fireChange: Bool) {
+        if let flags { flagsBlob = flags }
+        if let experiments { expsBlob = experiments }
+        if fireChange { notifyChange() }
+    }
+
     public func destroy() {
         pollTask?.cancel()
         pollTask = nil
     }
 
-    public func getFlag(_ name: String, user: [String: Any]) -> Bool {
-        if let override = flagOverrides[name] { return override }
+    /// Evaluate a flag and explain why it resolved that way (Feature B). The
+    /// reason is computed at this boundary without touching `Eval.evalGate`:
+    ///
+    /// 1. override set → `OVERRIDE` (short-circuits before telemetry)
+    /// 2. client not ready → `CLIENT_NOT_READY`, value `false`
+    /// 3. gate absent from blob → `FLAG_NOT_FOUND`, value `false`
+    /// 4. gate present but disabled/killed → `OFF`, value `false`
+    /// 5. else run `Eval.evalGate`; `RULE_MATCH` if true, `DEFAULT` if false
+    ///
+    /// The usage beacon is emitted exactly once here (steps 2–5), never on
+    /// `OVERRIDE`.
+    public func getFlagDetail(_ name: String, user: [String: Any]) -> FlagDetail {
+        // 1. Override wins, short-circuit before telemetry (matches getExperiment).
+        if let override = flagOverrides[name] {
+            return FlagDetail(value: override, reason: .override)
+        }
+        // Single telemetry beacon for the non-override path.
         telemetry.emit("gate", name)
-        let gates = flagsBlob?["gates"] as? [String: Any]
-        return Eval.evalGate(gates?[name] as? [String: Any], user)
+        // 2. No live blob yet.
+        guard initialized, let flagsBlob else {
+            return FlagDetail(value: false, reason: .clientNotReady)
+        }
+        // 3. Gate not present in the blob.
+        let gates = flagsBlob["gates"] as? [String: Any]
+        guard let gate = gates?[name] as? [String: Any] else {
+            return FlagDetail(value: false, reason: .flagNotFound)
+        }
+        // 4. Gate disabled or killed (read the same fields evalGate reads).
+        if Eval.enabled(gate["killswitch"]) || !Eval.enabled(gate["enabled"]) {
+            return FlagDetail(value: false, reason: .off)
+        }
+        // 5. Real evaluation.
+        let result = Eval.evalGate(gate, user)
+        return FlagDetail(value: result, reason: result ? .ruleMatch : .default)
+    }
+
+    public func getFlag(_ name: String, user: [String: Any]) -> Bool {
+        getFlagDetail(name, user: user).value
+    }
+
+    /// Evaluate a flag, returning `default` only when the flag cannot be
+    /// evaluated — i.e. the client is not ready or the flag is not found — never
+    /// when it simply evaluates to `false` (Feature A).
+    public func getFlag(_ name: String, user: [String: Any], default defaultValue: Bool = false) -> Bool {
+        let d = getFlagDetail(name, user: user)
+        if d.reason == FlagReason.clientNotReady.rawValue || d.reason == FlagReason.flagNotFound.rawValue {
+            return defaultValue
+        }
+        return d.value
     }
 
     public func getConfig(_ name: String) -> Any? {
+        getConfig(name, default: nil)
+    }
+
+    /// Read a dynamic config, returning `default` when the key is absent
+    /// (Feature A). An override always wins; an override pinned to `nil` returns
+    /// `nil`, not the default.
+    public func getConfig(_ name: String, default defaultValue: Any? = nil) -> Any? {
         if configOverrides.keys.contains(name) { return configOverrides[name] ?? nil }
         telemetry.emit("config", name)
         let configs = flagsBlob?["configs"] as? [String: Any]
-        let entry = configs?[name] as? [String: Any]
-        return entry?["value"]
+        guard let entry = configs?[name] as? [String: Any] else { return defaultValue }
+        return entry["value"]
     }
 
     public func getExperiment(_ name: String, user: [String: Any], defaultParams: Any?) -> ExperimentResult {
@@ -165,11 +338,16 @@ public actor Client {
     }
 
     private func fetchAll() async throws {
+        // Track whether either blob applied NEW data (a 200, not a 304) so
+        // change listeners fire exactly once per refresh that brings new data.
+        var appliedNewData = false
+
         let (flagsStatus, flagsHeaders, flagsBody) = try await httpGet("/sdk/flags", etag: flagsEtag)
         if let pi = flagsHeaders["X-Poll-Interval"] as? String, let v = Int(pi) { pollIntervalSec = v }
         if flagsStatus == 200 {
             if let etag = flagsHeaders["Etag"] as? String { flagsEtag = etag }
             flagsBlob = try JSONSerialization.jsonObject(with: flagsBody) as? [String: Any]
+            appliedNewData = true
         } else if flagsStatus != 304 {
             throw NSError(domain: "shipeasy", code: flagsStatus)
         }
@@ -178,9 +356,12 @@ public actor Client {
         if expsStatus == 200 {
             if let etag = expsHeaders["Etag"] as? String { expsEtag = etag }
             expsBlob = try JSONSerialization.jsonObject(with: expsBody) as? [String: Any]
+            appliedNewData = true
         } else if expsStatus != 304 {
             throw NSError(domain: "shipeasy", code: expsStatus)
         }
+
+        if appliedNewData { notifyChange() }
     }
 
     private func httpGet(_ path: String, etag: String?) async throws -> (Int, [AnyHashable: Any], Data) {

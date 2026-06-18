@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Default values on `getFlag`/`getConfig`.** Added optional `default:`
+  parameters: `getFlag(_:user:default:)` returns the default only when the flag
+  cannot be evaluated (client not ready or flag not found) — never when it
+  evaluates to `false`. `getConfig(_:default:)` returns the default when the key
+  is absent. The original two-argument forms are unchanged.
+- **Flag evaluation detail.** Added `FlagDetail { value, reason }`, the
+  `FlagReason` enum (`OVERRIDE`, `CLIENT_NOT_READY`, `FLAG_NOT_FOUND`, `OFF`,
+  `RULE_MATCH`, `DEFAULT`), and `getFlagDetail(_:user:)`. The reason is computed
+  at the SDK boundary without changing the canonical eval; `getFlag` now
+  delegates to it. The usage beacon is emitted exactly once per non-override
+  evaluation.
+- **Change listeners.** `onChange(_:)` registers a `@Sendable` listener fired
+  after a fetch applies new data (HTTP 200, not 304) and returns an unsubscribe
+  closure. Listeners never fire in local (test/snapshot) mode.
+- **Offline snapshot data source.** `Client.fromFile(_:)` and
+  `Client.fromSnapshot(flags:experiments:)` build a no-network, immediately-ready
+  client from JSON blobs (telemetry off, `initialize`/`initializeOnce`/`track`
+  no-op). Evaluations run the real eval against the snapshot; overrides apply on
+  top.
 - **Local-override test utility.** `Client.forTesting()` builds a no-network,
   no-key, immediately-ready client (`initialize()`/`initializeOnce()` and
   `track(...)` are no-ops, telemetry disabled). New override setters —

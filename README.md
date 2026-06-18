@@ -20,6 +20,84 @@ let r = await client.getExperiment("checkout_button", user: ["user_id": "u_123"]
 await client.track(userId: "u_123", eventName: "purchase", properties: ["amount": 49])
 ```
 
+## Default values
+
+`getFlag` and `getConfig` take an optional `default` that is returned **only
+when the value cannot be evaluated** — never when it simply evaluates to
+`false`/absent-but-evaluable:
+
+```swift
+// Returns the default ONLY if the client isn't ready yet or the flag doesn't
+// exist; a flag that evaluates to false still returns false.
+let on = await client.getFlag("new_checkout", user: ["user_id": "u_123"], default: true)
+
+// Returns the default when the config key is absent.
+let copy = await client.getConfig("billing_copy", default: ["headline": "Welcome"])
+```
+
+The original two-argument forms (`getFlag(_:user:)`, `getConfig(_:)`) are
+unchanged.
+
+## Evaluation detail
+
+`getFlagDetail` returns both the value and the reason it resolved that way,
+useful for debugging targeting and rollout:
+
+```swift
+let d = await client.getFlagDetail("new_checkout", user: ["user_id": "u_123"])
+// d.value  -> Bool
+// d.reason -> one of the FlagReason raw values
+```
+
+`reason` is one of:
+
+| Reason             | Meaning                                              |
+| ------------------ | ---------------------------------------------------- |
+| `OVERRIDE`         | A local `overrideFlag` supplied the value            |
+| `CLIENT_NOT_READY` | No live blob yet (client hasn't fetched)             |
+| `FLAG_NOT_FOUND`   | The gate name isn't in the flags blob                |
+| `OFF`              | The gate exists but is disabled / killed             |
+| `RULE_MATCH`       | The gate evaluated to `true` (rules + rollout match) |
+| `DEFAULT`          | The gate evaluated to `false` (not targeted)         |
+
+`getFlag` delegates to `getFlagDetail` and returns `.value`.
+
+## Change listeners
+
+Register a listener that fires after a fetch applies **new** data (an HTTP 200,
+not a 304). When the background poll is running (after `initialize()`), it fires
+on each poll that brings new data; otherwise it fires on the next refresh that
+applies new data. Listeners never fire in `forTesting()`/snapshot (local) mode.
+`onChange` returns an unsubscribe closure:
+
+```swift
+let unsubscribe = await client.onChange {
+    print("flag/experiment data refreshed")
+}
+// later…
+unsubscribe()
+```
+
+## Offline snapshot
+
+Build a fully offline client from a JSON file or in-memory blobs — no network,
+immediately ready, telemetry off, `initialize()`/`initializeOnce()`/`track(...)`
+are no-ops. Evaluations run the **real** eval against the snapshot, and
+`override*` values apply on top:
+
+```swift
+// From a file: { "flags": <body of /sdk/flags>, "experiments": <body of /sdk/experiments> }
+let client = try Client.fromFile("/path/to/snapshot.json")
+
+// Or from in-memory blobs:
+let client2 = Client.fromSnapshot(
+    flags: ["gates": [/* … */], "configs": [/* … */]],
+    experiments: ["experiments": [/* … */], "universes": [/* … */]]
+)
+
+let on = await client.getFlag("new_checkout", user: ["user_id": "u_123"])
+```
+
 ## Anonymous visitors
 
 For logged-out traffic you need a *stable* unit so a fractional rollout buckets
