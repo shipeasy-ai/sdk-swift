@@ -29,6 +29,27 @@ enum Eval {
         return nil
     }
 
+    /// Pick the bucketing unit for an experiment, matching the canonical
+    /// `pickIdentifier` (packages/core/src/eval/gate.ts). When `bucketBy` names
+    /// an attribute, hash on it (e.g. `company_id` to keep a whole org on one
+    /// variant): a non-empty string is used as-is, a number is stringified.
+    /// Otherwise (no bucketBy, or the attribute is absent/empty) fall back to
+    /// `user_id ?? anonymous_id`.
+    static func pickIdentifier(_ user: [String: Any], _ bucketBy: String?) -> String? {
+        if let bucketBy = bucketBy, let v = user[bucketBy] {
+            if let s = v as? String, !s.isEmpty { return s }
+            if let n = v as? Int { return String(n) }
+            if let n = v as? Double {
+                // Match JS `String(number)`: integral values render without a
+                // trailing ".0" (e.g. 42, not 42.0).
+                if n == n.rounded() && abs(n) < 1e15 { return String(Int(n)) }
+                return String(n)
+            }
+            if let n = v as? NSNumber { return n.stringValue }
+        }
+        return userId(user)
+    }
+
     static func matchRule(_ rule: [String: Any], _ user: [String: Any]) -> Bool {
         guard let attr = rule["attr"] as? String, let op = rule["op"] as? String else { return false }
         let value = rule["value"]
@@ -100,7 +121,12 @@ enum Eval {
             if !evalGate(gate, user) { return notIn }
         }
 
-        guard let uid = userId(user) else { return notIn }
+        // Bucket on exp.bucketBy (e.g. company_id) when set, else
+        // user_id/anonymous_id. Holdout, allocation, and group all hash on the
+        // SAME unit so a whole org moves together. No resolvable unit ⇒ not
+        // enrolled (experiment-platform doc 20 §4 fallback).
+        let bucketBy = exp["bucketBy"] as? String
+        guard let uid = pickIdentifier(user, bucketBy) else { return notIn }
 
         if let universeName = exp["universe"] as? String {
             let universes = exps?["universes"] as? [String: Any]

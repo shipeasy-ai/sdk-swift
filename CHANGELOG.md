@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **`bucketBy` in experiment evaluation.** Experiments now honor an optional
+  `bucketBy` attribute (e.g. `company_id`) so a whole org buckets together:
+  when set and present on the user it drives the holdout, allocation, AND group
+  hashes (a non-empty string is used as-is, a number is stringified); when
+  absent it falls back to `user_id ?? anonymous_id`, matching the canonical
+  TS/core implementation and gate bucketing.
 - **Default values on `getFlag`/`getConfig`.** Added optional `default:`
   parameters: `getFlag(_:user:default:)` returns the default only when the flag
   cannot be evaluated (client not ready or flag not found) — never when it
