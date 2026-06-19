@@ -47,6 +47,18 @@ public actor Client {
     private var initialized = false
     private let telemetry: Telemetry
 
+    // Attribute names usable for targeting but never persisted in analytics
+    // (LD/Statsig `privateAttributes`). The server evaluates locally, so private
+    // attrs never leave for evaluation; the only egress is `/collect`, where the
+    // listed keys are stripped from every outbound `track()` payload.
+    private let privateAttributes: [String]
+
+    // Sticky-bucketing store (doc 20 §2). When set, getExperiment locks a unit to
+    // its first-assigned variant — changing allocation % / weights won't
+    // re-bucket enrolled units (rotating the experiment salt is the reshuffle
+    // lever). Absent ⇒ deterministic (fully backward compatible).
+    private let stickyStore: StickyBucketStore?
+
     // Local test mode: when true the client performs no network I/O. Network
     // init/poll are no-ops, the client is immediately "ready", and track(...)
     // is a no-op. Built only via `forTesting()`.
@@ -74,12 +86,16 @@ public actor Client {
         session: URLSession = .shared,
         env: String = "prod",
         disableTelemetry: Bool = false,
-        telemetryURL: String = "https://t.shipeasy.ai"
+        telemetryURL: String = "https://t.shipeasy.ai",
+        privateAttributes: [String] = [],
+        stickyStore: StickyBucketStore? = nil
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.session = session
         self.localMode = false
+        self.privateAttributes = privateAttributes
+        self.stickyStore = stickyStore
         // Per-evaluation usage telemetry. ON by default; pass
         // disableTelemetry: true to opt out. See Telemetry.swift.
         self.telemetry = Telemetry(
@@ -96,6 +112,8 @@ public actor Client {
         self.session = .shared
         self.localMode = localMode
         self.initialized = true
+        self.privateAttributes = []
+        self.stickyStore = nil
         self.telemetry = Telemetry(
             endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
         )
@@ -112,7 +130,11 @@ public actor Client {
     // Private designated init for an offline, snapshot-backed client. Loads the
     // blob fields directly, runs in localMode (no network), is immediately
     // initialized, and force-disables telemetry. Overrides apply on top.
-    private init(snapshotFlags: [String: Any]?, snapshotExperiments: [String: Any]?) {
+    private init(
+        snapshotFlags: [String: Any]?,
+        snapshotExperiments: [String: Any]?,
+        stickyStore: StickyBucketStore? = nil
+    ) {
         self.apiKey = ""
         self.baseURL = URL(string: "https://edge.shipeasy.dev")!
         self.session = .shared
@@ -120,6 +142,8 @@ public actor Client {
         self.initialized = true
         self.flagsBlob = snapshotFlags
         self.expsBlob = snapshotExperiments
+        self.privateAttributes = []
+        self.stickyStore = stickyStore
         self.telemetry = Telemetry(
             endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
         )
@@ -132,8 +156,12 @@ public actor Client {
     /// ready, telemetry is off, `initialize()`/`initializeOnce()`/`track(...)`
     /// are no-ops, and evaluations run the real eval against the snapshot.
     /// Overrides apply on top.
-    public static func fromSnapshot(flags: [String: Any], experiments: [String: Any]) -> Client {
-        Client(snapshotFlags: flags, snapshotExperiments: experiments)
+    public static func fromSnapshot(
+        flags: [String: Any],
+        experiments: [String: Any],
+        stickyStore: StickyBucketStore? = nil
+    ) -> Client {
+        Client(snapshotFlags: flags, snapshotExperiments: experiments, stickyStore: stickyStore)
     }
 
     /// Build an offline client from a JSON file (Feature D). The file is a JSON
@@ -305,11 +333,22 @@ public actor Client {
         telemetry.emit("experiment", name)
         let exps = expsBlob?["experiments"] as? [String: Any]
         let exp = exps?[name] as? [String: Any]
-        let r = Eval.evalExperiment(exp, flagsBlob, expsBlob, user)
+        let r = Eval.evalExperiment(
+            exp, flagsBlob, expsBlob, user, name: name, stickyStore: stickyStore
+        )
         if r.params == nil {
             return ExperimentResult(inExperiment: r.inExperiment, group: r.group, params: defaultParams)
         }
         return r
+    }
+
+    // Drop caller-marked private attributes from an outbound props bag before it
+    // leaves for /collect. Private attrs may drive local targeting but are never
+    // persisted in analytics (LD/Statsig parity). Returns the input unchanged
+    // when there is nothing to strip.
+    private func stripPrivate(_ props: [String: Any]?) -> [String: Any]? {
+        guard let props, !privateAttributes.isEmpty else { return props }
+        return props.filter { !privateAttributes.contains($0.key) }
     }
 
     public func track(userId: String, eventName: String, properties: [String: Any]? = nil) {
@@ -320,7 +359,30 @@ public actor Client {
             "user_id": userId,
             "ts": Int(Date().timeIntervalSince1970 * 1000),
         ]
-        if let properties, !properties.isEmpty { event["properties"] = properties }
+        let safeProps = stripPrivate(properties)
+        if let safeProps, !safeProps.isEmpty { event["properties"] = safeProps }
+        let body: [String: Any] = ["events": [event]]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task { try? await self.post("/collect", body: data) }
+    }
+
+    /// Emit an exposure event for an experiment at the server-side decision
+    /// point (parity with the browser's auto-exposure). The server is stateless
+    /// and never auto-logs, so call this when you actually present the treatment.
+    /// Re-evaluates `experiment` for the user; if enrolled, POSTs a single
+    /// `{type:"exposure", experiment, group, user_id, ts}` to `/collect`.
+    /// No-op in local mode or when the user is not enrolled.
+    public func logExposure(userId: String, experiment: String) {
+        if localMode { return }
+        let result = getExperiment(experiment, user: ["user_id": userId], defaultParams: nil)
+        guard result.inExperiment else { return }
+        let event: [String: Any] = [
+            "type": "exposure",
+            "experiment": experiment,
+            "group": result.group,
+            "user_id": userId,
+            "ts": Int(Date().timeIntervalSince1970 * 1000),
+        ]
         let body: [String: Any] = ["events": [event]]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task { try? await self.post("/collect", body: data) }

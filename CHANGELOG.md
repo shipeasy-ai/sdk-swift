@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Private attributes.** New `privateAttributes: [String]` client option. The
+  server evaluates locally, so private attrs never leave for evaluation; the
+  only egress is `/collect`, where the listed keys are now stripped from every
+  outbound `track()` payload. Matches the TS reference SDK (LD/Statsig parity).
+- **Manual server exposure.** Added `logExposure(userId:experiment:)`. The
+  server never auto-logs; this re-evaluates the experiment for the user and, if
+  enrolled, POSTs a single `{type:"exposure", experiment, group, user_id, ts}`
+  to `/collect`. No-op in local mode or when the user isn't enrolled.
+- **Sticky bucketing.** New `StickyBucketStore` protocol
+  (`get(_:) -> [String: StickyEntry]?`, `set(_:_:_:)`), `StickyEntry`
+  (`group` + `salt8`), and a built-in `InMemoryStickyBucketStore`. Supply a
+  store via the `Client(... stickyStore:)` initializer or
+  `Client.fromSnapshot(... stickyStore:)`. When present, experiment eval — after
+  the holdout, before allocation — honors a stored assignment whose `salt8`
+  still matches the experiment salt prefix (skipping the allocation gate and
+  returning the stored group without re-picking), and persists every fresh pick.
+  A salt-prefix mismatch or a vanished group re-buckets and overwrites the
+  entry. Absent ⇒ deterministic (fully backward compatible). Matches doc 20 §2
+  and the TS reference SDK.
 - **`bucketBy` in experiment evaluation.** Experiments now honor an optional
   `bucketBy` attribute (e.g. `company_id`) so a whole org buckets together:
   when set and present on the user it drives the holdout, allocation, AND group

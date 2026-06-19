@@ -111,7 +111,9 @@ enum Eval {
         _ exp: [String: Any]?,
         _ flags: [String: Any]?,
         _ exps: [String: Any]?,
-        _ user: [String: Any]
+        _ user: [String: Any],
+        name: String? = nil,
+        stickyStore: StickyBucketStore? = nil
     ) -> ExperimentResult {
         guard let exp = exp, exp["status"] as? String == "running" else { return notIn }
 
@@ -138,16 +140,39 @@ enum Eval {
         }
 
         let salt = (exp["salt"] as? String) ?? ""
+        let salt8 = String(salt.prefix(8))
+        let groups = (exp["groups"] as? [[String: Any]]) ?? []
+
+        // Sticky short-circuit (doc 20 §2): after holdout, before allocation. An
+        // enrolled unit whose stored salt prefix still matches skips the
+        // allocation gate (so a shrinking allocation keeps it in) and returns the
+        // stored group WITHOUT re-running the pick. A salt-prefix mismatch (the
+        // experiment salt rotated) or a vanished group falls through to a fresh
+        // re-bucket, which overwrites the stale entry below.
+        if let store = stickyStore, let expName = name {
+            if let entry = store.get(uid)?[expName], entry.salt8 == salt8 {
+                if let g = groups.first(where: { ($0["name"] as? String) == entry.group }) {
+                    return ExperimentResult(inExperiment: true, group: entry.group, params: g["params"])
+                }
+                // Stored group no longer exists — fall through to re-bucket.
+            }
+        }
+
         let allocPct = (exp["allocationPct"] as? Int) ?? Int((exp["allocationPct"] as? Double) ?? 0)
         if Murmur3.bucket("\(salt):alloc:\(uid)", mod: 10000) >= UInt32(allocPct) { return notIn }
 
         let groupHash = Murmur3.bucket("\(salt):group:\(uid)", mod: 10000)
-        let groups = (exp["groups"] as? [[String: Any]]) ?? []
         var cumulative: UInt32 = 0
         for (i, g) in groups.enumerated() {
             cumulative += UInt32((g["weight"] as? Int) ?? 0)
             if groupHash < cumulative || i == groups.count - 1 {
-                return ExperimentResult(inExperiment: true, group: (g["name"] as? String) ?? "control", params: g["params"])
+                let groupName = (g["name"] as? String) ?? "control"
+                // On a fresh pick, persist the assignment so the next eval is
+                // sticky to this group until the salt rotates.
+                if let store = stickyStore, let expName = name {
+                    store.set(uid, expName, StickyEntry(group: groupName, salt8: salt8))
+                }
+                return ExperimentResult(inExperiment: true, group: groupName, params: g["params"])
             }
         }
         return notIn
