@@ -20,6 +20,30 @@ let r = await client.getExperiment("checkout_button", user: ["user_id": "u_123"]
 await client.track(userId: "u_123", eventName: "purchase", properties: ["amount": 49])
 ```
 
+## Server-side rendering (SSR)
+
+Emit the request's evaluated flags as a declarative `<script>` tag so the
+browser SDK has them on first paint. `bootstrapScriptTag` carries the payload in
+`data-*` attributes (**no key**); the static `se-bootstrap.js` loader hydrates
+`window.__SE_BOOTSTRAP` and writes the `__se_anon_id` cookie so the browser
+buckets identically to the server.
+
+```swift
+let user = ["user_id": "u_123"]
+
+// Two tags for the document <head>. The PUBLIC client key (not the server
+// key) goes on the i18n loader tag. (`Client` is an actor, so `await`.)
+let bootstrap = await client.bootstrapScriptTag(user, anonId: anonId)
+let i18n = await client.i18nScriptTag(clientKey, profile: "en:prod")
+let head = bootstrap + i18n
+
+// …or get the raw payload (["flags", "configs", "experiments", "killswitches"]):
+let boot = await client.evaluate(user)
+```
+
+`bootstrapScriptTag` also accepts `i18nProfile:` and `baseURL:`
+(defaults to `https://cdn.shipeasy.ai`).
+
 ## Default values
 
 `getFlag` and `getConfig` take an optional `default` that is returned **only
