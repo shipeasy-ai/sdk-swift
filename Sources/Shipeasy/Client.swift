@@ -64,6 +64,14 @@ public actor Client {
     // is a no-op. Built only via `forTesting()`.
     private let localMode: Bool
 
+    // Deployment env, tagged onto see() error events. Telemetry already carries
+    // env in its URL prefix; see() needs it as an explicit wire field.
+    private let env: String
+
+    // Per-process spam guard for see() error reports. Bound here so a hot loop
+    // can't flood /collect (dedup window + hard cap; see SeeLimiter).
+    private let seeLimiter = SeeLimiter()
+
     // Local overrides (Statsig-style). When set, an override wins over the
     // evaluated value in the matching getter. Usable on any client; on a
     // `forTesting()` client they are the only source of values. Access is
@@ -94,6 +102,7 @@ public actor Client {
         self.baseURL = baseURL
         self.session = session
         self.localMode = false
+        self.env = env
         self.privateAttributes = privateAttributes
         self.stickyStore = stickyStore
         // Per-evaluation usage telemetry. ON by default; pass
@@ -102,6 +111,9 @@ public actor Client {
             endpoint: telemetryURL, sdkKey: apiKey, side: "server",
             env: env, disabled: disableTelemetry, session: session
         )
+        // Register as the default client backing the package-level see() funcs
+        // (last constructed wins — the server-SDK analog of TS's shipeasy({key})).
+        setDefaultClient(self)
     }
 
     // Private designated init for the local test client. No API key is needed
@@ -111,6 +123,7 @@ public actor Client {
         self.baseURL = URL(string: "https://edge.shipeasy.dev")!
         self.session = .shared
         self.localMode = localMode
+        self.env = "prod"
         self.initialized = true
         self.privateAttributes = []
         self.stickyStore = nil
@@ -139,6 +152,7 @@ public actor Client {
         self.baseURL = URL(string: "https://edge.shipeasy.dev")!
         self.session = .shared
         self.localMode = true
+        self.env = "prod"
         self.initialized = true
         self.flagsBlob = snapshotFlags
         self.expsBlob = snapshotExperiments
@@ -384,6 +398,43 @@ public actor Client {
             "ts": Int(Date().timeIntervalSince1970 * 1000),
         ]
         let body: [String: Any] = ["events": [event]]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task { try? await self.post("/collect", body: data) }
+    }
+
+    // MARK: - see() structured error reporting
+
+    // Test seam: when set, see() events are handed here (after limiter + sanitize)
+    // instead of being POSTed. Capturing real POSTs from an actor is awkward; this
+    // mirrors Telemetry's `sender` seam. Set via `setSeeSink(_:)`.
+    private var seeSink: (@Sendable ([String: Any]) -> Void)?
+
+    /// Install a test sink that receives the built see() event instead of the
+    /// network POST. Test-only; pass nil to restore the network path.
+    func setSeeSink(_ sink: (@Sendable ([String: Any]) -> Void)?) {
+        seeSink = sink
+    }
+
+    /// Build the wire event and fire-and-forget POST it to /collect. No-op in
+    /// local mode. Spam-guarded. Never throws into caller code. Invoked from
+    /// `SeeChain.to(_:)` via `Task { await client._dispatchSee(built) }`.
+    func _dispatchSee(_ built: SeeBuilt) {
+        if localMode { return }
+        let ev = buildSeeEvent(
+            built.problem,
+            subject: built.subject,
+            outcome: built.outcome,
+            extras: stripPrivate(built.extras),
+            side: "server",
+            sdkVersion: SDK_VERSION,
+            env: env
+        )
+        if !seeLimiter.shouldSend(ev) { return }
+        if let seeSink {
+            seeSink(ev)
+            return
+        }
+        let body: [String: Any] = ["events": [ev]]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task { try? await self.post("/collect", body: data) }
     }

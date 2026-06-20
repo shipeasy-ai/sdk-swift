@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.0
+
+- **`see()` structured error reporting.** New fluent grammar for reporting
+  handled errors with their *product consequence*, mirroring `@shipeasy/sdk`
+  and the other server SDKs. Instance methods on `Client`
+  (`see(_:)`, `seeViolation(_:)`, `controlFlowException(_:)`) and package-level
+  functions (`see`, `seeViolation`, `controlFlowException`) backed by a default
+  client registered when a `Client` is constructed (last wins; override with
+  `setDefaultClient(_:)`). A global `see()` before any client logs a warning and
+  no-ops — it never crashes. The chain reads synchronously —
+  `client.see(error).causesThe("checkout").to("use cached prices")` — because
+  `see`/`seeViolation`/`controlFlowException` are `nonisolated` and return a
+  plain (non-actor) `SeeChain`; `to(_:)` is the terminal that builds the event
+  and fire-and-forgets the POST to `/collect` via a detached `Task` onto the
+  actor. `causesThe(_:)` and `extras(_:)` are chainable setters callable in any
+  order before `to(_:)`; `to(_:)` is idempotent and a chain that never calls
+  `to(_:)` sends nothing. Events carry `type:"error"`, `kind`
+  (`caught`/`violation`), `error_type`, `message`, optional `stack` (current
+  call stack, best-effort — Swift has no per-throw stack), `subject`, `outcome`,
+  sanitized `extras`, `side:"server"`, `env`, the new `sdk_version`, and `ts`.
+  Extras are sanitized (≤20 keys, 200-char string values, only
+  String/number/Bool, nil/NSNull dropped) and the client's private attributes
+  are stripped. A per-process spam limiter (30s dedup, 25-send cap) bounds
+  network chatter. `controlFlowException(_:).because(_:)` marks an exception as
+  expected and reports **nothing** (its `.extras()` are local-debug only). No-op
+  in local/`forTesting()` mode, like `track()`.
+
 ## Unreleased
 
 - **Private attributes.** New `privateAttributes: [String]` client option. The
