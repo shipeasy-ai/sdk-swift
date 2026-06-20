@@ -356,6 +356,117 @@ public actor Client {
         return r
     }
 
+    /// Batch-evaluate every loaded gate, config and experiment for `user` into a
+    /// bootstrap payload (`["flags": ..., "configs": ..., "experiments": ...,
+    /// "killswitches": ...]`) keyed to match the browser SDK's
+    /// `window.__SE_BOOTSTRAP` shape. Local overrides win. Killswitches are
+    /// folded into per-gate evaluation, so the standalone `killswitches` map is
+    /// empty for this SDK. No telemetry (a batch evaluate is not a per-flag
+    /// exposure).
+    public func evaluate(_ user: [String: Any]) -> [String: Any] {
+        var outFlags: [String: Any] = [:]
+        var outConfigs: [String: Any] = [:]
+        var outExps: [String: Any] = [:]
+
+        if let gates = flagsBlob?["gates"] as? [String: Any] {
+            for (name, raw) in gates {
+                if let ov = flagOverrides[name] {
+                    outFlags[name] = ov
+                } else {
+                    outFlags[name] = Eval.evalGate(raw as? [String: Any], user)
+                }
+            }
+        }
+        if let configs = flagsBlob?["configs"] as? [String: Any] {
+            for (name, raw) in configs {
+                if configOverrides.keys.contains(name) {
+                    outConfigs[name] = (configOverrides[name] ?? nil) ?? NSNull()
+                } else if let entry = raw as? [String: Any] {
+                    outConfigs[name] = entry["value"] ?? NSNull()
+                }
+            }
+        }
+        if let exps = expsBlob?["experiments"] as? [String: Any] {
+            for (name, raw) in exps {
+                let r = experimentOverrides[name]
+                    ?? Eval.evalExperiment(raw as? [String: Any], flagsBlob, expsBlob, user, name: name, stickyStore: stickyStore)
+                outExps[name] = [
+                    "inExperiment": r.inExperiment,
+                    "group": r.group,
+                    "params": r.params ?? NSNull(),
+                ]
+            }
+        }
+
+        return [
+            "flags": outFlags,
+            "configs": outConfigs,
+            "experiments": outExps,
+            "killswitches": [String: Any](),
+        ]
+    }
+
+    /// Return the cross-platform SSR bootstrap `<script>` tag for a request:
+    /// `se-bootstrap.js` reads its `data-*` attributes and hydrates
+    /// `window.__SE_BOOTSTRAP` (and writes the anon cookie). No SDK key is
+    /// embedded — the server key must never reach the browser.
+    public func bootstrapScriptTag(
+        _ user: [String: Any],
+        anonId: String? = nil,
+        i18nProfile: String = "en:prod",
+        baseURL: String? = nil
+    ) -> String {
+        let payload = evaluate(user)
+        let base = Client.cdnBase(baseURL)
+        let profile = i18nProfile.isEmpty ? "en:prod" : i18nProfile
+        var attrs = "data-se-bootstrap"
+        attrs += " " + Client.attr("data-flags", Client.jsonString(payload["flags"]))
+        attrs += " " + Client.attr("data-configs", Client.jsonString(payload["configs"]))
+        attrs += " " + Client.attr("data-experiments", Client.jsonString(payload["experiments"]))
+        attrs += " " + Client.attr("data-killswitches", Client.jsonString(payload["killswitches"]))
+        attrs += " " + Client.attr("data-i18n-profile", profile)
+        attrs += " " + Client.attr("data-api-url", base)
+        if let anonId, !anonId.isEmpty {
+            attrs += " " + Client.attr("data-anon-id", anonId)
+        }
+        return "<script src=\"\(Client.escapeAttr("\(base)/sdk/bootstrap.js"))\" \(attrs)></script>"
+    }
+
+    /// Return the i18n loader `<script>` tag. The loader fetches translations for
+    /// the profile using the PUBLIC client key (safe to embed in HTML).
+    public func i18nScriptTag(_ clientKey: String, profile: String = "en:prod", baseURL: String? = nil) -> String {
+        let base = Client.cdnBase(baseURL)
+        let p = profile.isEmpty ? "en:prod" : profile
+        return "<script src=\"\(Client.escapeAttr("\(base)/sdk/i18n/loader.js"))\" \(Client.attr("data-key", clientKey)) \(Client.attr("data-profile", p))></script>"
+    }
+
+    private static let defaultCDNBase = "https://cdn.shipeasy.ai"
+
+    private static func cdnBase(_ override: String?) -> String {
+        var base = (override?.isEmpty == false) ? override! : defaultCDNBase
+        while base.hasSuffix("/") { base.removeLast() }
+        return base
+    }
+
+    private static func jsonString(_ value: Any?) -> String {
+        guard let value,
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let s = String(data: data, encoding: .utf8) else { return "{}" }
+        return s
+    }
+
+    private static func attr(_ name: String, _ value: String) -> String {
+        "\(name)=\"\(escapeAttr(value))\""
+    }
+
+    private static func escapeAttr(_ v: String) -> String {
+        v.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+    }
+
     // Drop caller-marked private attributes from an outbound props bag before it
     // leaves for /collect. Private attrs may drive local targeting but are never
     // persisted in analytics (LD/Statsig parity). Returns the input unchanged
