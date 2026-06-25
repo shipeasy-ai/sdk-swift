@@ -4,7 +4,7 @@ Server SDK for [Shipeasy](https://shipeasy.dev). SwiftPM, iOS 15+/macOS 12+.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "0.1.0"),
+    .package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "0.8.0"),
 ]
 ```
 
