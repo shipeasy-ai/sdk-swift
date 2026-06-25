@@ -21,14 +21,14 @@ final class LogExposureTests: XCTestCase {
     // localMode (snapshot/forTesting) clients never touch the network, so
     // logExposure is a guaranteed no-op and must not crash.
     func testLocalModeIsNoOp() async {
-        let client = Client.fromSnapshot(flags: [:], experiments: runningExp())
+        let client = Engine.fromSnapshot(flags: [:], experiments: runningExp())
         await client.logExposure(userId: "u1", experiment: "price_test")
         XCTAssertTrue(true)
     }
 
     // forTesting() client (no blob) → not enrolled → no-op, no crash.
     func testNotEnrolledIsNoOp() async {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
         await client.logExposure(userId: "u1", experiment: "missing")
         XCTAssertTrue(true)
     }
@@ -36,7 +36,7 @@ final class LogExposureTests: XCTestCase {
     // On a network-backed client, calling logExposure for an unknown experiment
     // re-evaluates to "not enrolled" and must not throw synchronously.
     func testNetworkClientUnknownExperimentDoesNotThrow() async {
-        let client = Client(apiKey: "k", disableTelemetry: true)
+        let client = Engine(apiKey: "k", disableTelemetry: true)
         await client.logExposure(userId: "u1", experiment: "nope")
         XCTAssertTrue(true)
     }

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.8.0
+
+- **BREAKING — `configure(...)` + user-bound `Client(user)`.** The two-part
+  front door shared across every Shipeasy SDK (see
+  `.agents/sdk-bound-client-spec.md`).
+  - The heavyweight type that owns the API key, HTTP, the blob cache and the
+    poll timer was **renamed `Client` → `Engine`** (still an `actor`; its full
+    surface is unchanged — `forTesting()`, `fromSnapshot(...)`, `fromFile(_:)`,
+    `override*`, `initialize()`/`initializeOnce()`, `track`, `logExposure`,
+    `evaluate`, `bootstrapScriptTag`/`i18nScriptTag`, sticky bucketing, private
+    attributes, and the `see()` instance methods). The `see()` default-client
+    wiring now hooks off `Engine` construction / `configure(...)`.
+  - The name **`Client` is now the lightweight, user-bound handle.** Configure
+    once: `configure(apiKey:attributes:)` builds the single package-global
+    `Engine`, stores the optional `attributes` transform, and fire-and-forgets
+    the engine's one-shot fetch (pass `init: false` to skip it). Then construct
+    one `Client` per user/request: `try Client(user)`. The `attributes`
+    transform runs **once in the constructor** and the resulting attribute map
+    is bound, so every method takes **NO user argument**:
+    `await Client(["user_id": "u1"]).getFlag("new_checkout")`.
+  - New public symbols: `func configure(apiKey:attributes:…) -> Engine`,
+    `struct Client`, `typealias AttributesFn = (Any) -> [String: Any]`,
+    `struct NotConfiguredError`, `func globalEngine() -> Engine?`,
+    `func resetGlobalConfig()`, and `Engine.getKillswitch(_:switchKey:)`.
+  - `Client` methods are `async` (they forward to the `Engine` actor):
+    `getFlag(_:)`, `getFlag(_:default:)`, `getFlagDetail(_:)`, `getConfig(_:)`,
+    `getConfig(_:default:)`, `getExperiment(_:defaultParams:)`,
+    `getKillswitch(_:switchKey:)`. Construction is synchronous and **throws
+    `NotConfiguredError`** when `configure(...)` was not called — a loud, local
+    failure.
+  - `configure(...)` is first-config-wins (idempotent), matching the
+    default-engine `see()` idempotency.
+  - Also aligns `SDK_VERSION` (was lagging at `0.6.0`) with the `VERSION` file.
+  - **Migration:** rename your existing `Client(apiKey:)` heavyweight usage to
+    `Engine(apiKey:)` (or adopt `configure(apiKey:)`), and rename
+    `Client.forTesting()` / `Client.fromSnapshot(...)` / `Client.fromFile(...)`
+    to `Engine.…`. The new `Client(user)` is the per-request handle.
+
 ## 0.7.0
 
 - **SSR bootstrap script-tag helpers.** New `Client.evaluate(user)`

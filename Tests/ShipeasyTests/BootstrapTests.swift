@@ -2,8 +2,8 @@ import XCTest
 @testable import Shipeasy
 
 final class BootstrapTests: XCTestCase {
-    private func client() -> Client {
-        Client.fromSnapshot(
+    private func client() -> Engine {
+        Engine.fromSnapshot(
             flags: [
                 "gates": [
                     "new_ui": ["enabled": true, "rolloutPct": 10000, "salt": "s"],

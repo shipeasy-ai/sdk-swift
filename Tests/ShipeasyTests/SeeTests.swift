@@ -22,10 +22,10 @@ final class SeeTests: XCTestCase {
     private func withClient(
         privateAttributes: [String] = [],
         expectEvents: Int,
-        _ body: (Client) -> Void
+        _ body: (Engine) -> Void
     ) async -> [[String: Any]] {
         let sink = Sink()
-        let c = Client(apiKey: "srv_key", baseURL: URL(string: "https://e.x")!,
+        let c = Engine(apiKey: "srv_key", baseURL: URL(string: "https://e.x")!,
                        privateAttributes: privateAttributes)
         await c.setSeeSink { sink.add($0) }
         body(c)
@@ -121,7 +121,7 @@ final class SeeTests: XCTestCase {
 
     func testTestModeIsNoop() async {
         let sink = Sink()
-        let c = Client.forTesting()
+        let c = Engine.forTesting()
         await c.setSeeSink { sink.add($0) }
         c.see(Boom(description: "x")).causesThe("checkout").to("use cached prices")
         // Give any (incorrectly scheduled) Task a chance to run.
@@ -131,7 +131,7 @@ final class SeeTests: XCTestCase {
 
     func testControlFlowMarksAndReportsNothing() async {
         let sink = Sink()
-        let c = Client(apiKey: "srv_key", baseURL: URL(string: "https://e.x")!)
+        let c = Engine(apiKey: "srv_key", baseURL: URL(string: "https://e.x")!)
         await c.setSeeSink { sink.add($0) }
         let tail = c.controlFlowException(Boom(description: "not a Foo"))
             .because("because it wasn't an encoded Foo")

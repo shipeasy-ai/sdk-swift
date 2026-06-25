@@ -8,16 +8,62 @@ dependencies: [
 ]
 ```
 
+## Quickstart — `configure` once, then a `Client` per user
+
+Configure the package-global engine once at startup, then construct a cheap,
+**user-bound** `Client` per request. The bound `Client`'s methods take **no user
+argument** — the user is bound at construction:
+
 ```swift
 import Shipeasy
 
-let client = Client(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
-try await client.initialize()
+// Once, at startup. Builds the single global Engine and kicks off its one-shot
+// fetch (fire-and-forget). Optionally map YOUR user object → the attribute map.
+configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
 
-let enabled = await client.getFlag("new_checkout", user: ["user_id": "u_123"])
+// Per user / request. The configured `attributes` transform runs once here.
+let client = try Client(["user_id": "u_123", "plan": "pro"])
+
+let enabled = await client.getFlag("new_checkout")
 let cfg = await client.getConfig("billing_copy")
-let r = await client.getExperiment("checkout_button", user: ["user_id": "u_123"], defaultParams: ["color": "blue"])
-await client.track(userId: "u_123", eventName: "purchase", properties: ["amount": 49])
+let r = await client.getExperiment("checkout_button", defaultParams: ["color": "blue"])
+let killed = await client.getKillswitch("panic_button")
+```
+
+`Client(user)` is cheap: it owns no connection, cache, or poll timer — it
+delegates every evaluation to the single configured `Engine`. Constructing a
+`Client` before `configure(...)` throws `NotConfiguredError`.
+
+### `attributes` transform
+
+Pass `attributes` to map *your* user object (any shape) to the Shipeasy
+attribute map (`["user_id": ..., "anonymous_id": ..., <targeting attrs>]`). It
+runs once, in the `Client` constructor. The default is identity — the user value
+is assumed to already BE the attribute map.
+
+```swift
+struct AppUser { let id: String; let region: String }
+
+configure(apiKey: serverKey) { user in
+    let u = user as! AppUser
+    return ["user_id": u.id, "country": u.region]
+}
+
+let on = await (try Client(AppUser(id: "u_123", region: "US"))).getFlag("us_only")
+```
+
+### Long-running servers: the `Engine`
+
+For background polling (instead of the one-shot fetch), keep the returned
+`Engine` and call `initialize()` on it. The `Engine` is the heavyweight type
+(formerly `Client`) that owns the API key, HTTP, the blob cache and the poll
+timer, with the full lower-level surface (`getFlag(_:user:)`, `track`,
+`logExposure`, `evaluate`, overrides, snapshots, `see()`):
+
+```swift
+let engine = configure(apiKey: serverKey, init: false)
+try await engine.initialize() // starts the background poll
+await engine.track(userId: "u_123", eventName: "purchase", properties: ["amount": 49])
 ```
 
 ## Server-side rendering (SSR)
@@ -32,7 +78,7 @@ buckets identically to the server.
 let user = ["user_id": "u_123"]
 
 // Two tags for the document <head>. The PUBLIC client key (not the server
-// key) goes on the i18n loader tag. (`Client` is an actor, so `await`.)
+// key) goes on the i18n loader tag. (`Engine` is an actor, so `await`.)
 let bootstrap = await client.bootstrapScriptTag(user, anonId: anonId)
 let i18n = await client.i18nScriptTag(clientKey, profile: "en:prod")
 let head = bootstrap + i18n
@@ -111,10 +157,10 @@ are no-ops. Evaluations run the **real** eval against the snapshot, and
 
 ```swift
 // From a file: { "flags": <body of /sdk/flags>, "experiments": <body of /sdk/experiments> }
-let client = try Client.fromFile("/path/to/snapshot.json")
+let client = try Engine.fromFile("/path/to/snapshot.json")
 
 // Or from in-memory blobs:
-let client2 = Client.fromSnapshot(
+let client2 = Engine.fromSnapshot(
     flags: ["gates": [/* … */], "configs": [/* … */]],
     experiments: ["experiments": [/* … */], "universes": [/* … */]]
 )
@@ -146,7 +192,7 @@ name + format are a cross-SDK contract — see `18-identity-bucketing.md`.
 
 ## Testing
 
-For unit tests, build a client with `Client.forTesting()`. It does **zero
+For unit tests, build an engine with `Engine.forTesting()`. It does **zero
 network**, needs **no API key**, is immediately ready (`initialize()` /
 `initializeOnce()` are no-ops), and `track(...)` is a no-op. Seed each entity
 with the `override*` setters — an override always wins over live evaluation, so
@@ -155,7 +201,7 @@ your tests are deterministic:
 ```swift
 import Shipeasy
 
-let client = Client.forTesting() // no key, no network, ready to use
+let client = Engine.forTesting() // no key, no network, ready to use
 
 // Flags
 await client.overrideFlag("new_checkout", true)
@@ -180,4 +226,4 @@ await client.clearOverrides()
 ```
 
 The `override*` setters and `clearOverrides()` also work on a normal,
-network-backed `Client` if you want to pin a value at runtime.
+network-backed `Engine` if you want to pin a value at runtime.

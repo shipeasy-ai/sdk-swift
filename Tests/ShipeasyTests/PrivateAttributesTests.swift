@@ -6,7 +6,7 @@ import XCTest
 /// stripping logic via the in-source filter shape; full network assertions need
 /// a URLProtocol stub (the live `track()` path is no-op in local mode).
 final class PrivateAttributesTests: XCTestCase {
-    // The strip predicate (mirroring Client.stripPrivate): drop listed keys,
+    // The strip predicate (mirroring Engine.stripPrivate): drop listed keys,
     // keep the rest, order-independent.
     private func strip(_ props: [String: Any], _ priv: [String]) -> [String: Any] {
         guard !priv.isEmpty else { return props }
@@ -38,7 +38,7 @@ final class PrivateAttributesTests: XCTestCase {
     // without crashing (network path is exercised live; in tests we just assert
     // construction + a no-throw track on a localMode client is harmless).
     func testClientConstructsWithPrivateAttributes() async {
-        let client = Client(apiKey: "k", disableTelemetry: true, privateAttributes: ["email"])
+        let client = Engine(apiKey: "k", disableTelemetry: true, privateAttributes: ["email"])
         // track on a non-local client posts asynchronously; calling it must not
         // throw synchronously into the caller.
         await client.track(userId: "u1", eventName: "purchase", properties: ["amount": 1, "email": "x"])

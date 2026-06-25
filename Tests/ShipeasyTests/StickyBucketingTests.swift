@@ -26,7 +26,7 @@ final class StickyBucketingTests: XCTestCase {
     // returns the SAME group from the store.
     func testFreshPickIsPersistedAndReused() async {
         let store = InMemoryStickyBucketStore()
-        let client = Client.fromSnapshot(flags: [:], experiments: snapshotExps(), stickyStore: store)
+        let client = Engine.fromSnapshot(flags: [:], experiments: snapshotExps(), stickyStore: store)
 
         let first = await client.getExperiment("price_test", user: ["user_id": "u1"], defaultParams: nil)
         XCTAssertTrue(first.inExperiment)
@@ -48,7 +48,7 @@ final class StickyBucketingTests: XCTestCase {
             "u1": ["price_test": StickyEntry(group: "treatment", salt8: "salt1234")]
         ])
         // allocationPct 0 would exclude everyone without stickiness.
-        let client = Client.fromSnapshot(
+        let client = Engine.fromSnapshot(
             flags: [:], experiments: snapshotExps(alloc: 0), stickyStore: store
         )
         let r = await client.getExperiment("price_test", user: ["user_id": "u1"], defaultParams: nil)
@@ -62,7 +62,7 @@ final class StickyBucketingTests: XCTestCase {
         let store = InMemoryStickyBucketStore(seed: [
             "u1": ["price_test": StickyEntry(group: "treatment", salt8: "OLDSALT0")]
         ])
-        let client = Client.fromSnapshot(
+        let client = Engine.fromSnapshot(
             flags: [:], experiments: snapshotExps(salt: "salt12345"), stickyStore: store
         )
         let r = await client.getExperiment("price_test", user: ["user_id": "u1"], defaultParams: nil)
@@ -74,7 +74,7 @@ final class StickyBucketingTests: XCTestCase {
     // No store ⇒ deterministic: same input gives the same group, nothing
     // persisted (there is no store to persist to).
     func testNoStoreIsDeterministic() async {
-        let client = Client.fromSnapshot(flags: [:], experiments: snapshotExps())
+        let client = Engine.fromSnapshot(flags: [:], experiments: snapshotExps())
         let a = await client.getExperiment("price_test", user: ["user_id": "u1"], defaultParams: nil)
         let b = await client.getExperiment("price_test", user: ["user_id": "u1"], defaultParams: nil)
         XCTAssertEqual(a.group, b.group)
@@ -85,7 +85,7 @@ final class StickyBucketingTests: XCTestCase {
         let store = InMemoryStickyBucketStore(seed: [
             "u1": ["price_test": StickyEntry(group: "deleted_group", salt8: "salt1234")]
         ])
-        let client = Client.fromSnapshot(flags: [:], experiments: snapshotExps(), stickyStore: store)
+        let client = Engine.fromSnapshot(flags: [:], experiments: snapshotExps(), stickyStore: store)
         let r = await client.getExperiment("price_test", user: ["user_id": "u1"], defaultParams: nil)
         XCTAssertTrue(r.inExperiment)
         XCTAssertTrue(["control", "treatment"].contains(r.group))

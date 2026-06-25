@@ -5,7 +5,7 @@ final class TestUtilitiesTests: XCTestCase {
     // forTesting() builds a usable client with no API key and never touches the
     // network; initialize() is a no-op rather than an HTTP fetch.
     func testForTestingNeedsNoNetworkOrKey() async throws {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
         // Would throw / hang if it tried to fetch from the edge; in local mode
         // it returns immediately.
         try await client.initialize()
@@ -21,7 +21,7 @@ final class TestUtilitiesTests: XCTestCase {
 
     // Each override is returned by its matching getter.
     func testOverridesWin() async {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
 
         await client.overrideFlag("new_checkout", true)
         let flag = await client.getFlag("new_checkout", user: [:])
@@ -40,7 +40,7 @@ final class TestUtilitiesTests: XCTestCase {
 
     // overrideConfig can pin a nil value distinctly from "no override".
     func testOverrideConfigNil() async {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
         await client.overrideConfig("maybe", nil)
         let config = await client.getConfig("maybe")
         XCTAssertNil(config)
@@ -48,7 +48,7 @@ final class TestUtilitiesTests: XCTestCase {
 
     // clearOverrides resets every override back to default evaluation.
     func testClearOverridesResets() async {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
         await client.overrideFlag("f", true)
         await client.overrideConfig("c", 42)
         await client.overrideExperiment("e", group: "t", params: nil)
@@ -65,7 +65,7 @@ final class TestUtilitiesTests: XCTestCase {
 
     // track() is a no-op in local mode and never crashes / sends.
     func testTrackNoOps() async {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
         await client.track(userId: "u1", eventName: "purchase", properties: ["amount": 10])
         await client.track(userId: "u1", eventName: "view")
         // Reaching here without crashing is the assertion.
@@ -83,7 +83,7 @@ final class TestUtilitiesTests: XCTestCase {
                 "off_gate": ["enabled": false],
             ]
         ]
-        let client = Client.fromSnapshot(flags: snapshot, experiments: [:])
+        let client = Engine.fromSnapshot(flags: snapshot, experiments: [:])
 
         // Evaluates true → returns the real value, ignores default.
         let onVal = await client.getFlag("on_for_all", user: ["user_id": "u1"], default: true)
@@ -105,7 +105,7 @@ final class TestUtilitiesTests: XCTestCase {
         let snapshot: [String: Any] = [
             "configs": ["limits": ["value": ["max": 10]]]
         ]
-        let client = Client.fromSnapshot(flags: snapshot, experiments: [:])
+        let client = Engine.fromSnapshot(flags: snapshot, experiments: [:])
 
         let present = await client.getConfig("limits", default: ["max": 99]) as? [String: Int]
         XCTAssertEqual(present?["max"], 10)
@@ -132,7 +132,7 @@ final class TestUtilitiesTests: XCTestCase {
                 ],
             ]
         ]
-        let client = Client.fromSnapshot(flags: snapshot, experiments: [:])
+        let client = Engine.fromSnapshot(flags: snapshot, experiments: [:])
 
         let match = await client.getFlagDetail("on_for_all", user: ["user_id": "u1"])
         XCTAssertTrue(match.value)
@@ -164,7 +164,7 @@ final class TestUtilitiesTests: XCTestCase {
 
     // CLIENT_NOT_READY when there is no blob yet (forTesting has none).
     func testFlagDetailClientNotReady() async {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
         let d = await client.getFlagDetail("anything", user: ["user_id": "u1"])
         XCTAssertFalse(d.value)
         XCTAssertEqual(d.reason, FlagReason.clientNotReady.rawValue)
@@ -175,7 +175,7 @@ final class TestUtilitiesTests: XCTestCase {
     func testOnChangeFiresOnApplyAndUnsubscribe() async {
         // Use a network-backed client (localMode never fires listeners) and
         // drive the internal apply-data seam directly.
-        let client = Client(apiKey: "k", disableTelemetry: true)
+        let client = Engine(apiKey: "k", disableTelemetry: true)
         let counter = Counter()
 
         let unsub = await client.onChange { counter.increment() }
@@ -200,7 +200,7 @@ final class TestUtilitiesTests: XCTestCase {
 
     // Listeners never fire in localMode.
     func testOnChangeSilentInLocalMode() async {
-        let client = Client.forTesting()
+        let client = Engine.forTesting()
         let counter = Counter()
         await client.onChange { counter.increment() }
         await client.applyData(flags: ["gates": [:]], experiments: nil, fireChange: true)
@@ -222,7 +222,7 @@ final class TestUtilitiesTests: XCTestCase {
                 ]
             ]
         ]
-        let client = Client.fromSnapshot(flags: snapshot, experiments: exps)
+        let client = Engine.fromSnapshot(flags: snapshot, experiments: exps)
         // initialize() is a no-op (no network) and does not throw.
         try? await client.initialize()
 

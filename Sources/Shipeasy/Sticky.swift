@@ -20,10 +20,10 @@ public struct StickyEntry: Sendable, Equatable {
 /// Pluggable sticky-bucketing store for the server (doc 20 §2). Keyed by the
 /// bucketing unit (the `pickIdentifier`-resolved identifier); the value is that
 /// unit's per-experiment assignments keyed by experiment name. Absent from the
-/// `Client` ⇒ today's deterministic behaviour (fully backward compatible). Use
+/// `Engine` ⇒ today's deterministic behaviour (fully backward compatible). Use
 /// `InMemoryStickyBucketStore` or a cookie-bridge built from request cookies.
 ///
-/// Implementations must be `Sendable` because the `Client` actor holds the
+/// Implementations must be `Sendable` because the `Engine` actor holds the
 /// store and calls it from its isolated context.
 public protocol StickyBucketStore: Sendable {
     /// Return the per-experiment assignments for `unit`, or `nil` if none.
@@ -34,7 +34,7 @@ public protocol StickyBucketStore: Sendable {
 
 /// A process-local sticky store backed by a lock-guarded dictionary. Handy for
 /// tests and single-process servers. Thread-safe so it can be shared across the
-/// `Client` actor and caller code.
+/// `Engine` actor and caller code.
 public final class InMemoryStickyBucketStore: StickyBucketStore, @unchecked Sendable {
     private let lock = NSLock()
     private var store: [String: [String: StickyEntry]]
