@@ -208,4 +208,33 @@ public struct Client: @unchecked Sendable {
     public func getKillswitch(_ name: String, switchKey: String? = nil) async -> Bool {
         await engine.getKillswitch(name, switchKey: switchKey)
     }
+
+    /// The bucketing/identity unit for the bound user: `user_id` else
+    /// `anonymous_id` from the bound attribute map, or `nil` when neither is set.
+    private var unitId: String? {
+        if let v = attributes["user_id"] { return "\(v)" }
+        if let v = attributes["anonymous_id"] { return "\(v)" }
+        return nil
+    }
+
+    /// Record a conversion event for the bound user. Derives the unit id from the
+    /// bound attribute map (`user_id` else `anonymous_id`) and forwards to the
+    /// engine's `track`. A no-op when the bound user has neither id. This is the
+    /// Client-only path to record a conversion — the advanced
+    /// `Engine.track(userId:eventName:properties:)` form remains for callers that
+    /// need an explicit unit.
+    public func track(_ event: String, properties: [String: Any] = [:]) async {
+        guard let id = unitId else { return }
+        await engine.track(userId: id, eventName: event, properties: properties.isEmpty ? nil : properties)
+    }
+
+    /// Emit an exposure event for `experiment` at the server-side decision point,
+    /// for the bound user. Derives the unit id from the bound attribute map and
+    /// forwards to the engine's `logExposure`; a no-op when the bound user has no
+    /// id or is not enrolled. The advanced `Engine.logExposure(userId:experiment:)`
+    /// form remains for callers that need an explicit unit.
+    public func logExposure(_ experiment: String) async {
+        guard let id = unitId else { return }
+        await engine.logExposure(userId: id, experiment: experiment)
+    }
 }

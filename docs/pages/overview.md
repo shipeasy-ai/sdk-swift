@@ -29,10 +29,12 @@ is a Swift `actor`). Constructing a `Client` before `configure(...)` throws
 | Type     | Role |
 | -------- | ---- |
 | `Engine` | The heavyweight `actor`. Owns the API key, HTTP, the blob cache, and the poll timer. Exposes the full low-level surface: `getFlag(_:user:)`, `getConfig`, `getExperiment(_:user:defaultParams:)`, `getKillswitch`, `track`, `logExposure`, `evaluate`, the `override*` setters, snapshots, and `see()`. There is one global engine, built by `configure(...)`. |
-| `Client` | A cheap, **user-bound** value over the global engine. Owns no connection, cache, or poll timer — it runs the configured `attributes` transform once at construction and delegates every evaluation to the engine. Build one per user/request. |
+| `Client` | A cheap, **user-bound** value over the global engine. Owns no connection, cache, or poll timer — it runs the configured `attributes` transform once at construction and delegates every evaluation to the engine. Build one per user/request. Exposes `getFlag`, `getFlagDetail`, `getConfig`, `getExperiment`, `getKillswitch`, plus `track(_:properties:)` and `logExposure(_:)` (the unit is derived from the bound user), so experiments are end-to-end Client-only. |
 
-Most application code uses `Client`. Reach for the `Engine` directly when you
-need the low-level surface (background polling, `track`, overrides, SSR, `see()`).
+Most application code uses `Client` — including recording conversions via
+`client.track(...)` and exposures via `client.logExposure(...)`. Reach for the
+`Engine` directly when you need the low-level surface (background polling,
+unit-explicit `track`/`logExposure`, overrides, SSR, `see()`).
 
 ## Pages
 

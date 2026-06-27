@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0
+
+- Add `track()`/`logExposure()` to the bound `Client` (experiments are now
+  end-to-end Client-only; the Engine forms remain for advanced use).
+  - `Client.track(_ event: String, properties: [String: Any] = [:])` records a
+    conversion for the bound user — the unit is derived from the bound attribute
+    map (`user_id`, else `anonymous_id`), so no id argument is needed. A no-op
+    when the bound user has neither id.
+  - `Client.logExposure(_ experiment: String)` emits an exposure for the bound
+    user (re-evaluates and only emits when enrolled).
+  - The unit-explicit `Engine.track(userId:eventName:properties:)` and
+    `Engine.logExposure(userId:experiment:)` forms are unchanged.
+
 ## 0.8.0
 
 - **BREAKING — `configure(...)` + user-bound `Client(user)`.** The two-part

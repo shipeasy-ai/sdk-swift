@@ -8,5 +8,5 @@ if r.inExperiment, r.group == "treatment" {
     // render the treatment variant
 }
 
-await globalEngine()!.track(userId: "u_123", eventName: "{{SUCCESS_EVENT}}")
+await client.track("{{SUCCESS_EVENT}}")
 ```

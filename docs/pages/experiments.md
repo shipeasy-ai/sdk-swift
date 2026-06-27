@@ -44,8 +44,28 @@ let r = await engine.getExperiment(
 
 ## Tracking conversions
 
-Record a conversion event so the analysis pipeline can compute lift. `track`
-lives on the `Engine` (it is a no-op in test/snapshot mode):
+Record a conversion event so the analysis pipeline can compute lift. You already
+hold a bound `Client` from `getExperiment`, so call `track` straight on it — the
+unit is derived from the bound user (`user_id`, else `anonymous_id`), no id
+argument needed. Experiments are end-to-end Client-only:
+
+```swift
+let client = try Client(["user_id": "u_123"])
+await client.track("{{SUCCESS_EVENT}}", properties: ["amount": 49])
+```
+
+`logExposure` is on the bound `Client` too — record an exposure explicitly at the
+point you present the treatment (re-evaluates and only emits when the bound user
+is enrolled):
+
+```swift
+await client.logExposure("checkout_button")
+```
+
+### Engine (low-level) form
+
+The unit-explicit forms remain on the `Engine` for advanced callers that don't
+have a bound `Client` (both are a no-op in test/snapshot mode):
 
 ```swift
 let engine = globalEngine()!
@@ -54,11 +74,5 @@ await engine.track(
     eventName: "{{SUCCESS_EVENT}}",
     properties: ["amount": 49]
 )
-```
-
-`logExposure(userId:experiment:)` is also available on the engine if you need to
-record an exposure explicitly:
-
-```swift
 await engine.logExposure(userId: "u_123", experiment: "checkout_button")
 ```

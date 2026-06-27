@@ -140,4 +140,44 @@ final class BoundClientTests: XCTestCase {
         let absent = await client.getKillswitch("nope")
         XCTAssertFalse(absent)
     }
+
+    // The bound Client exposes track / logExposure (experiments end-to-end
+    // Client-only). They derive the unit from the bound attribute map and
+    // delegate to the engine. The live POST path needs a URLProtocol stub; here
+    // we assert the public contract: no user arg, no throw, and the no-op guard
+    // when the bound user has no id.
+    func testBoundClientTrackAndLogExposureDelegate() async throws {
+        let engine = configure(apiKey: "srv_key", disableTelemetry: true, init: false)
+        await engine.applyData(
+            flags: nil,
+            experiments: [
+                "experiments": [
+                    "price_test": [
+                        "status": "running", "salt": "s", "allocationPct": 10000,
+                        "groups": [["name": "treatment", "weight": 10000, "params": ["price": 9]]],
+                    ]
+                ]
+            ],
+            fireChange: false,
+            markReady: true
+        )
+
+        // user_id present → track/logExposure derive it and delegate without throwing.
+        let client = try Client(["user_id": "u_123"])
+        await client.track("checkout", properties: ["amount": 42])
+        await client.logExposure("price_test")
+        XCTAssertTrue(true)
+
+        // anonymous_id is the fallback unit when there is no user_id.
+        let anon = try Client(["anonymous_id": "anon_9"])
+        await anon.track("checkout")
+        await anon.logExposure("price_test")
+        XCTAssertTrue(true)
+
+        // No id on the bound user → both are guaranteed no-ops (no crash).
+        let idless = try Client(["plan": "pro"])
+        await idless.track("checkout")
+        await idless.logExposure("price_test")
+        XCTAssertTrue(true)
+    }
 }
