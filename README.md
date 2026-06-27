@@ -8,6 +8,9 @@ dependencies: [
 ]
 ```
 
+**Documentation:** [Installation & configuration](docs/pages/installation.md) ·
+[full docs](docs/)
+
 ## Quickstart — `configure` once, then a `Client` per user
 
 Configure the package-global engine once at startup, then construct a cheap,
