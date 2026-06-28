@@ -1,24 +1,18 @@
 # Configuration
 
-`configure(...)` builds the single package-global `Engine` and returns it. Call
-it **once** at startup. It is idempotent — the first call wins; later calls
-return the same engine.
+`configure(...)` wires the API key, HTTP, the rules cache, and (optionally) the
+background poll. Call it **once** at startup. It is idempotent — the first call
+wins; later calls are a no-op. See [installation](installation.md) for the full
+options table and per-framework wiring; this page covers the `attributes`
+transform and the one-shot-vs-poll choice.
 
 ```swift
-@discardableResult
-public func configure(
-    apiKey: String,
-    attributes: AttributesFn? = nil,
-    baseURL: URL = URL(string: "https://edge.shipeasy.dev")!,
-    session: URLSession = .shared,
-    env: String = "prod",
-    disableTelemetry: Bool = false,
-    telemetryURL: String = "https://t.shipeasy.ai",
-    privateAttributes: [String] = [],
-    stickyStore: StickyBucketStore? = nil,
-    `init`: Bool = true
-) -> Engine
+import Shipeasy
+
+configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
 ```
+
+The configure params, briefly:
 
 | Param               | Purpose |
 | ------------------- | ------- |
@@ -26,15 +20,12 @@ public func configure(
 | `attributes`        | A transform mapping *your* user object → the Shipeasy attribute map. Default is identity. See below. |
 | `baseURL`           | The edge endpoint. Defaults to `https://edge.shipeasy.dev`. |
 | `env`               | Deployment env tag (`"prod"` by default); stamped onto `see()` error events. |
+| `disableTelemetry`  | Suppress outbound telemetry (`track` / exposures / `see()`). |
+| `telemetryURL`      | Where telemetry POSTs go. |
 | `privateAttributes` | Attribute names usable for targeting but stripped from outbound `track()` payloads. See [advanced](advanced.md). |
 | `stickyStore`       | Optional `StickyBucketStore` to lock units to their first-assigned experiment variant. See [advanced](advanced.md). |
-| `init`              | When `true` (default), kick off a one-shot fetch (`initializeOnce()`) fire-and-forget so `Client(user).getFlag(...)` resolves against real rules without an explicit init. Pass `false` for the long-running poll path (see below). |
-
-```swift
-import Shipeasy
-
-configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
-```
+| `init`              | When `true` (default), kick off a one-shot fetch fire-and-forget so the first evaluation resolves against real rules. |
+| `poll`              | When `true`, run the initial fetch **and** a periodic background refresh (long-running servers). |
 
 ## The `attributes` transform
 
@@ -58,18 +49,16 @@ let on = await (try Client(AppUser(id: "u_123", region: "US"))).getFlag("us_only
 
 The default (`init: true`) kicks off a single fire-and-forget fetch so the first
 `Client` evaluation resolves against real rules. For a **long-running server**
-that wants the background poll instead, pass `init: false` and call
-`initialize()` on the returned `Engine`:
+that wants the background poll (periodic refresh) instead, pass `poll: true`:
 
 ```swift
-let engine = configure(apiKey: serverKey, init: false)
-try await engine.initialize() // starts the background poll
-await engine.track(userId: "u_123", eventName: "purchase", properties: ["amount": 49])
+configure(apiKey: serverKey, poll: true) // initial fetch + periodic background refresh
 ```
 
-`Engine` is the heavyweight type — keep the returned reference if you need
-`track`, `logExposure`, overrides, snapshots, or `see()` directly. Retrieve the
-configured engine anywhere via `globalEngine()`.
+The poll lifecycle is owned internally — you never start, stop, or touch it
+yourself. To react to a poll bringing new data, register an `onChange` listener
+(see [advanced](advanced.md)). Everything after configuration — flags, configs,
+experiments, `track`, `logExposure` — happens through the bound `Client`.
 
 ## Environment variables
 

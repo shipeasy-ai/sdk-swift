@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.10.0
+
+The uniform SDK DX standard (experiment-platform doc 23). The documented surface
+is now exactly `configure()` (+ the test/offline siblings) and the bound
+`try Client(user)`; the `Engine` actor stays public but undocumented.
+
+### Added
+
+- **`configureForTesting(...)`** (`async`) — no api key, zero network; seeds
+  flags/configs/experiments overrides and registers the global engine so the bound
+  `Client(user)` reads them. **Replaces** prior config (unlike `configure`'s
+  first-config-wins) so a test suite can reconfigure between cases.
+- **`configureForOffline(snapshot:path:...)`** (`async throws`) — evaluates the
+  **real** rules from an in-memory snapshot or a JSON file, with overrides layered
+  on top; also replaces prior config.
+- **`configure(..., poll:)`** — `poll: true` starts the background poll internally
+  (you never call `initialize()` yourself); `init` (default `true`) is the one-shot
+  fetch.
+- **Package-level helpers** so the docs never name the `Engine`: `overrideFlag`,
+  `overrideConfig`, `overrideExperiment`, `clearOverrides`, `onChange`,
+  `bootstrapScriptTag`, `i18nScriptTag` (all `async`) — delegating to the
+  configured global engine.
+- **`shipeasy-skill` executable** (`swift run shipeasy-skill install` / `print`) —
+  the opt-in installer that copies the bundled agent skill into a consumer's
+  project; the skill is a SwiftPM resource kept in sync by `gen-readme`.
+
+### Changed
+
+- `README.md` is now **generated** from `docs/` by the `gen-readme` executable
+  (`swift run gen-readme`, which also syncs the embedded skill); CI enforces it.
+  The docs were rewritten Engine-free around `configure()` + `Client`, with new
+  `metrics/track` + `ops/see` snippet groups and specific placeholders.
+
 ## 0.9.0
 
 - Add `track()`/`logExposure()` to the bound `Client` (experiments are now

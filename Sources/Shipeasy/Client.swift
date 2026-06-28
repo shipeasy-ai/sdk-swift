@@ -69,6 +69,15 @@ final class GlobalConfig: @unchecked Sendable {
         engine = nil
         attributes = identityAttributes
     }
+
+    /// REPLACE the global engine + transform unconditionally (unlike
+    /// `configureOnce`'s first-config-wins). Used by the `configureFor*` siblings
+    /// so a test suite can reconfigure between cases.
+    func install(_ engine: Engine, _ transform: AttributesFn?) {
+        lock.lock(); defer { lock.unlock() }
+        self.engine = engine
+        attributes = transform ?? identityAttributes
+    }
 }
 
 /// Configure the package-global engine and the `attributes` transform.
@@ -102,7 +111,8 @@ public func configure(
     telemetryURL: String = "https://t.shipeasy.ai",
     privateAttributes: [String] = [],
     stickyStore: StickyBucketStore? = nil,
-    `init`: Bool = true
+    `init`: Bool = true,
+    poll: Bool = false
 ) -> Engine {
     let (engine, fresh) = GlobalConfig.shared.configureOnce({
         Engine(
@@ -116,9 +126,16 @@ public func configure(
             stickyStore: stickyStore
         )
     }, attributes)
-    if fresh && `init` {
-        // Fire-and-forget one-shot fetch — never block configure().
-        Task { try? await engine.initializeOnce() }
+    if fresh {
+        if poll {
+            // Long-running server: initial fetch + periodic background refresh.
+            // The poll lifecycle lives inside the engine — the docs never tell a
+            // user to call initialize() themselves.
+            Task { try? await engine.initialize() }
+        } else if `init` {
+            // Fire-and-forget one-shot fetch — never block configure().
+            Task { try? await engine.initializeOnce() }
+        }
     }
     return engine
 }

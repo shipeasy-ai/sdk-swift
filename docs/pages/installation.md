@@ -12,13 +12,19 @@ the install + where to call `configure()`; every other page assumes
 
 ## Install
 
+Add the package to your `Package.swift` dependencies:
+
+```bash
+.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "0.10.0")
+```
+
 ### SwiftPM — `Package.swift`
 
-Add it to your `Package.swift` dependencies:
+The full dependency + target wiring:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "0.8.0"),
+    .package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "0.10.0"),
 ]
 ```
 
@@ -37,7 +43,7 @@ dependencies: [
 
 In Xcode: **File ▸ Add Package Dependencies…**, paste
 `https://github.com/shipeasy-ai/sdk-swift.git`, choose the **Up to Next Major**
-rule from `0.8.0`, and add the `Shipeasy` library product to your target.
+rule from `0.10.0`, and add the `Shipeasy` library product to your target.
 
 Then import it anywhere:
 
@@ -49,36 +55,35 @@ import Shipeasy
 
 ## Configure (`configure()`)
 
-`configure(...)` builds the single package-global `Engine` and returns it. Call
-it **exactly once** at startup, before any `Client` is constructed. It is
-idempotent — the first call wins; later calls return the same engine.
+`configure(...)` wires the API key, HTTP, the rules cache, and (optionally) the
+background poll. Call it **exactly once** at startup, before any `Client` is
+constructed. It is idempotent — the first call wins; later calls are a no-op.
 Constructing a `Client` before `configure(...)` throws `NotConfiguredError`.
 
 ```swift
-@discardableResult
-public func configure(
-    apiKey: String,                       // your SERVER key (required)
-    attributes: AttributesFn? = nil,      // your user object -> attribute map (default: identity)
-    baseURL: URL = URL(string: "https://edge.shipeasy.dev")!,
-    session: URLSession = .shared,
-    env: String = "prod",                 // env tag stamped on see() events
-    disableTelemetry: Bool = false,
-    telemetryURL: String = "https://t.shipeasy.ai",
-    privateAttributes: [String] = [],     // targeting-only attrs stripped from track() payloads
-    stickyStore: StickyBucketStore? = nil,// lock units to first-assigned variant
-    `init`: Bool = true                   // true: fire-and-forget one-shot fetch; false: long-running poll
-) -> Engine
+import Shipeasy
+
+configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
+
+// then, per request/user:
+let client = try Client(["user_id": "u_123"])
+let on = await client.getFlag("new_checkout")
 ```
 
-| Param               | Purpose |
-| ------------------- | ------- |
-| `apiKey`            | Your **server** key. Required. Pass it explicitly — there are no auto-read env vars. |
-| `attributes`        | A transform mapping *your* user object → the Shipeasy attribute map. Runs once, in the `Client` constructor. Default is identity. |
-| `baseURL`           | The edge endpoint. Defaults to `https://edge.shipeasy.dev`. |
-| `env`               | Deployment env tag (`"prod"` by default); stamped onto `see()` error events. |
-| `privateAttributes` | Attribute names usable for targeting but stripped from outbound `track()` payloads. |
-| `stickyStore`       | Optional `StickyBucketStore` to lock units to their first-assigned experiment variant. |
-| `init`              | `true` (default): kick off a one-shot fetch fire-and-forget so the first `Client` evaluation resolves against real rules. `false`: long-running poll — call `initialize()` on the returned `Engine` yourself. |
+### `configure()` options
+
+| Param               | Default | Purpose |
+| ------------------- | ------- | ------- |
+| `apiKey`            | —       | Your **server** key. Required. Pass it explicitly — there are no auto-read env vars. |
+| `attributes`        | identity | A transform mapping *your* user object → the Shipeasy attribute map. Runs once, in the `Client` constructor. See below. |
+| `baseURL`           | `https://edge.shipeasy.dev` | The edge endpoint. |
+| `env`               | `"prod"` | Deployment env tag; stamped onto `see()` error events. |
+| `disableTelemetry`  | `false` | Suppress outbound telemetry (`track` / exposures / `see()`). |
+| `telemetryURL`      | `https://t.shipeasy.ai` | Where telemetry POSTs go. |
+| `privateAttributes` | `[]`    | Attribute names usable for targeting but stripped from outbound `track()` payloads. See [advanced](advanced.md). |
+| `stickyStore`       | `nil`   | Optional `StickyBucketStore` to lock units to their first-assigned experiment variant. See [advanced](advanced.md). |
+| `init`              | `true`  | `true`: kick off a one-shot fetch fire-and-forget so the first evaluation resolves against real rules. Pass `false` when you set `poll: true`. |
+| `poll`              | `false` | `true`: run the initial fetch **and** a periodic background refresh (long-running servers). The poll lifecycle is owned internally — you never start it yourself. |
 
 ### Identity: the `attributes` transform
 
@@ -111,17 +116,15 @@ configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"] ?? 
 
 The default (`init: true`) kicks off a single fire-and-forget fetch so the first
 `Client` evaluation resolves against real rules. For a **long-running server**
-that wants the background poll instead, pass `init: false` and call
-`initialize()` on the returned `Engine`:
+that wants the background poll (periodic refresh) instead, pass `poll: true`:
 
 ```swift
-let engine = configure(apiKey: serverKey, init: false)
-try await engine.initialize() // starts the background poll
+configure(apiKey: serverKey, poll: true) // initial fetch + periodic background refresh
 ```
 
-`Engine` is the heavyweight type — keep the returned reference if you need
-`track`, `logExposure`, overrides, snapshots, or `see()` directly. Retrieve the
-configured engine anywhere via `globalEngine()`.
+The poll lifecycle is owned internally — you never start, stop, or touch it
+yourself. To react to a poll bringing new data, register an `onChange` listener
+(see [advanced](advanced.md)).
 
 ---
 
@@ -142,7 +145,8 @@ import Shipeasy
 
 public func configure(_ app: Application) throws {
     Shipeasy.configure(
-        apiKey: Environment.get("SHIPEASY_SERVER_KEY") ?? ""
+        apiKey: Environment.get("SHIPEASY_SERVER_KEY") ?? "",
+        poll: true
     ) { user in
         let req = user as! Request
         return ["user_id": req.headers.first(name: "x-user-id") ?? "anon"]
@@ -189,7 +193,8 @@ import Shipeasy
 
 func buildApplication() -> some ApplicationProtocol {
     Shipeasy.configure(
-        apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"] ?? ""
+        apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"] ?? "",
+        poll: true
     )
 
     let router = Router()
@@ -206,7 +211,9 @@ func buildApplication() -> some ApplicationProtocol {
 ### Plain Swift (`main`)
 
 For a CLI, daemon, or any non-framework process, call `configure()` once at the
-top of `main`, then construct a `Client` wherever you evaluate:
+top of `main`, then construct a `Client` wherever you evaluate. A short-lived
+process can keep the default `init: true` (one-shot fetch); a long-running one
+should pass `poll: true`:
 
 ```swift
 import Shipeasy

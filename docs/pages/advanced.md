@@ -17,12 +17,12 @@ Experiments and gates bucket on `user_id` (falling back to `anonymous_id`) by
 default. When the resource sets a `bucketBy` attribute (e.g. `company_id`),
 evaluation buckets on that attribute instead — so every user in a company gets
 the same variant. This is driven by the resource config (no SDK call needed);
-just make sure the named attribute is present in the user map:
+just make sure the named attribute is present in the bound user map:
 
 ```swift
-let r = await client.getExperiment("team_dashboard", defaultParams: nil)
-// if the experiment's bucketBy is "company_id", include it in the user map:
+// if the experiment's bucketBy is "company_id", include it in the user map
 let client = try Client(["user_id": "u_123", "company_id": "acme"])
+let r = await client.getExperiment("team_dashboard", defaultParams: nil)
 ```
 
 ## Sticky bucketing
@@ -47,11 +47,13 @@ For logged-out traffic you need a *stable* unit so a fractional rollout buckets
 the same on the server and in the browser. `AnonId` provides the cross-SDK
 `__se_anon_id` cookie primitives (this SDK is framework-agnostic, so it ships
 helpers rather than a middleware). In a server handler, resolve the id off the
-request `Cookie` header and echo it back on the response:
+request `Cookie` header, bind it to the `Client`, and echo it back on the
+response:
 
 ```swift
 let resolved = AnonId.resolve(cookieHeader: req.headers["cookie"].first)
-let on = await client.getFlag("new_checkout", user: ["anonymous_id": resolved.id])
+let client = try Client(["anonymous_id": resolved.id])
+let on = await client.getFlag("new_checkout")
 if resolved.minted {
     res.headers.add(name: "set-cookie", value: AnonId.setCookieHeader(resolved.id, secure: true))
 }
@@ -63,23 +65,24 @@ name + format are a cross-SDK contract (see `18-identity-bucketing.md`).
 
 ## Manual exposure
 
-The engine exposes `logExposure(userId:experiment:)` to record an experiment
-exposure explicitly (rather than relying on `getExperiment` to log it):
+`logExposure` is on the bound `Client` — record an experiment exposure explicitly
+(rather than relying on `getExperiment` to log it). The unit is derived from the
+bound user; it's a no-op when the user has no unit or isn't enrolled:
 
 ```swift
-let engine = globalEngine()!
-await engine.logExposure(userId: "u_123", experiment: "checkout_button")
+let client = try Client(["user_id": "u_123"])
+await client.logExposure("checkout_button")
 ```
 
 ## Change listeners
 
 Register a listener that fires after a fetch applies **new** data (HTTP 200, not
-304). With the background poll running it fires on each poll bringing new data;
-otherwise on the next refresh that applies new data. Listeners never fire in
-`forTesting()` / snapshot mode. `onChange` returns an unsubscribe closure:
+304) using the package-level `onChange` helper. It requires
+`configure(..., poll: true)` — no poll runs otherwise. Listeners never fire in
+testing/offline mode. `onChange` returns an unsubscribe closure:
 
 ```swift
-let unsubscribe = await client.onChange {
+let unsubscribe = await onChange {
     print("flag/experiment data refreshed")
 }
 // later…
@@ -88,6 +91,6 @@ unsubscribe()
 
 ## SSR bootstrap
 
-See [i18n](i18n.md) for `bootstrapScriptTag` / `i18nScriptTag` and the
-`evaluate(_:)` raw payload (`["flags", "configs", "experiments", "killswitches"]`)
-used to hydrate the browser SDK on first paint.
+See [i18n](i18n.md) for the package-level `bootstrapScriptTag` / `i18nScriptTag`
+helpers used to hydrate the browser SDK on first paint with the same evaluated
+flags the server saw.

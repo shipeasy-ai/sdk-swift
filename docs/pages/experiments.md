@@ -16,7 +16,7 @@ public struct ExperimentResult: Sendable {
 When the user is **not** enrolled, you get `inExperiment: false`, `group:
 "control"`, and your `defaultParams` echoed back as `params`.
 
-## Bound `Client` form
+## Enrol and branch
 
 ```swift
 let client = try Client(["user_id": "u_123"])
@@ -30,17 +30,6 @@ if r.inExperiment, r.group == "treatment" {
 
 `defaultParams` is the value returned for `params` whenever the user isn't
 enrolled (or the experiment is absent). Pass `nil` if you don't need a fallback.
-
-## Engine (low-level) form
-
-```swift
-let engine = globalEngine()!
-let r = await engine.getExperiment(
-    "checkout_button",
-    user: ["user_id": "u_123"],
-    defaultParams: ["color": "blue"]
-)
-```
 
 ## Tracking conversions
 
@@ -56,23 +45,9 @@ await client.track("{{SUCCESS_EVENT}}", properties: ["amount": 49])
 
 `logExposure` is on the bound `Client` too — record an exposure explicitly at the
 point you present the treatment (re-evaluates and only emits when the bound user
-is enrolled):
+is enrolled). It is a no-op when the bound user has no unit, and a no-op in
+testing/offline mode:
 
 ```swift
 await client.logExposure("checkout_button")
-```
-
-### Engine (low-level) form
-
-The unit-explicit forms remain on the `Engine` for advanced callers that don't
-have a bound `Client` (both are a no-op in test/snapshot mode):
-
-```swift
-let engine = globalEngine()!
-await engine.track(
-    userId: "u_123",
-    eventName: "{{SUCCESS_EVENT}}",
-    properties: ["amount": 49]
-)
-await engine.logExposure(userId: "u_123", experiment: "checkout_button")
 ```

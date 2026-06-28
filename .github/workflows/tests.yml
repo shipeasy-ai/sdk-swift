@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:5.10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  readme:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - name: README + embedded skill are generated from docs/ — check they're in sync
+        run: |
+          swift run gen-readme
+          git diff --exit-code README.md Sources/shipeasy-skill/SKILL.md \
+            || { echo "::error::README.md or Sources/shipeasy-skill/SKILL.md is out of date — run 'swift run gen-readme' and commit."; exit 1; }

@@ -11,26 +11,22 @@ code.
 builds the wire event and fire-and-forgets the report. `causesThe(_:)` and
 `extras(_:)` are chainable setters callable in any order *before* `to(_:)`.
 
+The package-level `see(_:)` reports against the configuration from
+`configure(...)`:
+
 ```swift
 do {
     try chargeCard(order)
 } catch {
-    client.see(error)
+    see(error)
         .causesThe("checkout")
         .extras(["order_id": order.id])
         .to("use the backup processor")
 }
 ```
 
-`client.see(_:)` targets a specific engine. There is also a **package-level**
-`see(_:)` that uses the last-constructed engine as the default client:
-
-```swift
-see(error).causesThe("checkout").to("retry on the backup processor")
-```
-
-If `see()` is called before any engine exists, the error is dropped (with a
-note to stderr).
+If `see()` is called before `configure(...)` has run, the error is dropped (with
+a note to stderr).
 
 ## Non-exception problems — `seeViolation`
 
@@ -38,13 +34,10 @@ Report a problem that isn't an `Error`. The `name` is a **stable fingerprint
 key** — put variable data in `.extras()`, never in the name.
 
 ```swift
-client.seeViolation("inventory_count_negative")
+seeViolation("inventory_count_negative")
     .causesThe("cart")
     .extras(["sku": sku])
     .to("clamp the quantity to zero")
-
-// package-level form:
-seeViolation("inventory_count_negative").to("clamp to zero")
 ```
 
 A `Violation` value type is also exported if you want to construct one directly.
