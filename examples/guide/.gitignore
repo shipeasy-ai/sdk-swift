@@ -1,0 +1,9 @@
+# XcodeGen output — regenerate with `xcodegen generate`
+*.xcodeproj/
+
+# Swift / Xcode build artifacts
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
