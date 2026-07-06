@@ -13,14 +13,11 @@ import AnyCodable
 /** Confirms the key is revoked. Idempotent — revoking an already-revoked key returns the same shape. */
 public struct RevokeKeyResponse: Codable, JSONEncodable {
 
-    public enum Revoked: Bool, Codable, JSONEncodable, CaseIterable {
-        case _true = true
-    }
     /** Id of the key that was revoked. */
     public var id: String
-    public var revoked: Revoked
+    public var revoked: Bool
 
-    public init(id: String, revoked: Revoked) {
+    public init(id: String, revoked: Bool) {
         self.id = id
         self.revoked = revoked
     }
@@ -40,5 +37,3 @@ public struct RevokeKeyResponse: Codable, JSONEncodable {
 }
 
 
-@available(iOS 13, tvOS 13, watchOS 6, macOS 10.15, *)
-extension RevokeKeyResponse: Identifiable {}

@@ -13,16 +13,13 @@ import AnyCodable
 /** Result of a profile-wide publish. */
 public struct PublishI18nProfileResponse: Codable, JSONEncodable {
 
-    public enum Ok: Bool, Codable, JSONEncodable, CaseIterable {
-        case _true = true
-    }
     public enum Purged: String, Codable, CaseIterable {
         case purged = "purged"
         case skipped = "skipped"
         case failed = "failed"
     }
     /** Always `true` on success. */
-    public var ok: Ok
+    public var ok: Bool
     /** Profile that was published. */
     public var profileId: String
     /** Audit chunk label, or `null` when none was given. */
@@ -42,7 +39,7 @@ public struct PublishI18nProfileResponse: Codable, JSONEncodable {
     /** Human-readable caveat when the publish landed but is not fully live. */
     public var warning: String?
 
-    public init(ok: Ok, profileId: String, chunk: String?, publishedAt: String, version: String, keyCount: Double, changed: Bool, purged: Purged, kvVerified: Bool, warning: String? = nil) {
+    public init(ok: Bool, profileId: String, chunk: String?, publishedAt: String, version: String, keyCount: Double, changed: Bool, purged: Purged, kvVerified: Bool, warning: String? = nil) {
         self.ok = ok
         self.profileId = profileId
         self.chunk = chunk

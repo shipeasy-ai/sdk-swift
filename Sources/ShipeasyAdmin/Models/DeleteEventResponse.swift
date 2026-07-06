@@ -13,12 +13,9 @@ import AnyCodable
 /** Confirmation that the event was archived. */
 public struct DeleteEventResponse: Codable, JSONEncodable {
 
-    public enum Ok: Bool, Codable, JSONEncodable, CaseIterable {
-        case _true = true
-    }
-    public var ok: Ok
+    public var ok: Bool
 
-    public init(ok: Ok) {
+    public init(ok: Bool) {
         self.ok = ok
     }
 

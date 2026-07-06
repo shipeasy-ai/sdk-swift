@@ -15,7 +15,7 @@ public struct QueryIrAggOneOf7: Codable, JSONEncodable {
     public enum Kind: String, Codable, CaseIterable {
         case quantile = "quantile"
     }
-    public enum P: Double, Codable, JSONEncodable, CaseIterable {
+    public enum P: Double, Codable, CaseIterable {
         case _05 = 0.5
         case _075 = 0.75
         case _09 = 0.9

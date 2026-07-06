@@ -12,13 +12,10 @@ import AnyCodable
 
 public struct ReanalyzeExperimentResponse: Codable, JSONEncodable {
 
-    public enum Queued: Bool, Codable, JSONEncodable, CaseIterable {
-        case _true = true
-    }
     public var id: String
-    public var queued: Queued
+    public var queued: Bool
 
-    public init(id: String, queued: Queued) {
+    public init(id: String, queued: Bool) {
         self.id = id
         self.queued = queued
     }
@@ -38,5 +35,3 @@ public struct ReanalyzeExperimentResponse: Codable, JSONEncodable {
 }
 
 
-@available(iOS 13, tvOS 13, watchOS 6, macOS 10.15, *)
-extension ReanalyzeExperimentResponse: Identifiable {}

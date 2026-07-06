@@ -7,9 +7,10 @@ let package = Package(
     products: [
         .library(name: "Shipeasy", targets: ["Shipeasy"]),
         // Generated OpenAPI admin client (the Shipeasy admin API — flags/experiments/
-        // configs/metrics/errors/ops CRUD + reads). URLSession-based, zero external
-        // deps, its own module so flags-SDK consumers don't pull it unless they ask.
-        // Regenerate with `apps/mobile` → `pnpm gen:clients swift`.
+        // configs/metrics/errors/ops CRUD + reads). URLSession-based, its own module
+        // so flags-SDK (`Shipeasy`) consumers don't pull it unless they import it.
+        // Depends on AnyCodable (freeform JSON, e.g. connector configs) — that dep is
+        // scoped to THIS target only. Regenerate with `apps/mobile` → `pnpm gen:clients swift`.
         .library(name: "ShipeasyAdmin", targets: ["ShipeasyAdmin"]),
         // Opt-in CLIs (not part of the library product consumers import):
         //  - shipeasy-skill: install the bundled agent skill into a project.
@@ -17,9 +18,17 @@ let package = Package(
         .executable(name: "shipeasy-skill", targets: ["shipeasy-skill"]),
         .executable(name: "gen-readme", targets: ["gen-readme"]),
     ],
+    dependencies: [
+        // Only ShipeasyAdmin uses it (freeform JSON). The flags `Shipeasy` target
+        // links nothing external.
+        .package(url: "https://github.com/Flight-School/AnyCodable", .upToNextMajor(from: "0.6.1")),
+    ],
     targets: [
         .target(name: "Shipeasy"),
-        .target(name: "ShipeasyAdmin"),
+        .target(
+            name: "ShipeasyAdmin",
+            dependencies: [.product(name: "AnyCodable", package: "AnyCodable")]
+        ),
         .executableTarget(
             name: "shipeasy-skill",
             resources: [.copy("SKILL.md")]
