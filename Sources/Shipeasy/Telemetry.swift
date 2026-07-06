@@ -1,5 +1,10 @@
 import Foundation
 
+// URLSession/URLRequest live in FoundationNetworking on non-Apple platforms (Linux).
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 /// Per-evaluation usage telemetry. Fires one fire-and-forget HTTP beacon per
 /// evaluation so usage is counted by Cloudflare's native per-path analytics.
 /// Mirrors the contract in the TypeScript reference SDK and

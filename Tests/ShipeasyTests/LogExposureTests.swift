@@ -1,4 +1,9 @@
 import XCTest
+
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 @testable import Shipeasy
 
 /// Feature B — manual server exposure. `logExposure(userId:experiment:)`

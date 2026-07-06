@@ -1,5 +1,10 @@
 import Foundation
 
+// URLSession/URLRequest live in FoundationNetworking on non-Apple platforms (Linux).
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 /// Why a flag resolved to its value. Computed at the SDK boundary (see
 /// `Engine.getFlagDetail`) without touching the canonical eval in `Eval`.
 public enum FlagReason: String, Sendable {

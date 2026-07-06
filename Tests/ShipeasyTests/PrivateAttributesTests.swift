@@ -1,4 +1,9 @@
 import XCTest
+
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 @testable import Shipeasy
 
 /// Feature A — private attributes. The keys listed in `privateAttributes` are

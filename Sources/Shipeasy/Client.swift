@@ -1,5 +1,10 @@
 import Foundation
 
+// URLSession/URLRequest live in FoundationNetworking on non-Apple platforms (Linux).
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - Global configure + user-bound Client
 //
 // Two-part ergonomic front door, mirroring `@shipeasy/sdk` and the other server

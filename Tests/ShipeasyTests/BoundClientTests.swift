@@ -1,4 +1,9 @@
 import XCTest
+
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 @testable import Shipeasy
 
 /// configure(...) + the user-bound Client. Each test resets the package-global

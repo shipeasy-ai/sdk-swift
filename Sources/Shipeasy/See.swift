@@ -63,13 +63,21 @@ func sanitizeExtras(_ extras: [String: Any]?) -> [String: Any]? {
         } else if let i = v as? Int {
             out[key] = i
         } else if let n2 = v as? NSNumber {
-            // NSNumber covers bridged Int/Double/Bool from `[String: Any]`.
+            // NSNumber covers bridged Int/Double/Bool from `[String: Any]`. The
+            // CFBoolean type-id check (distinguishing a bridged Bool) is Apple-only;
+            // on Linux a real Bool already matched `v as? Bool` above, so the
+            // NSNumber here is numeric.
+            #if canImport(Darwin)
             if CFGetTypeID(n2) == CFBooleanGetTypeID() {
                 out[key] = n2.boolValue
             } else {
                 let dd = n2.doubleValue
                 if dd.isFinite { out[key] = n2 } else { continue }
             }
+            #else
+            let dd = n2.doubleValue
+            if dd.isFinite { out[key] = n2 } else { continue }
+            #endif
         } else {
             continue
         }
