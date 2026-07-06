@@ -65,7 +65,7 @@ final class Telemetry: @unchecked Sendable {
         Task {
             var req = URLRequest(url: url)
             req.httpMethod = "GET"
-            _ = try? await session.data(for: req)
+            _ = try? await session.seData(for: req)
         }
     }
 

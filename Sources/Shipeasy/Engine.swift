@@ -618,7 +618,7 @@ public actor Engine {
         req.httpMethod = "GET"
         req.setValue(apiKey, forHTTPHeaderField: "X-SDK-Key")
         if let etag { req.setValue(etag, forHTTPHeaderField: "If-None-Match") }
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await session.seData(for: req)
         let http = response as? HTTPURLResponse
         return (http?.statusCode ?? 0, http?.allHeaderFields ?? [:], data)
     }
@@ -629,6 +629,6 @@ public actor Engine {
         req.httpBody = body
         req.setValue(apiKey, forHTTPHeaderField: "X-SDK-Key")
         req.setValue("text/plain", forHTTPHeaderField: "Content-Type")
-        _ = try await session.data(for: req)
+        _ = try await session.seData(for: req)
     }
 }
