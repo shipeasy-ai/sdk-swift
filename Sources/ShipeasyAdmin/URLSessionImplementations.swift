@@ -597,11 +597,15 @@ private class FormDataEncoding: ParameterEncoding {
             return "application/octet-stream" 
             #endif
         } else {
+            #if canImport(MobileCoreServices)
             if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, pathExtension as NSString, nil)?.takeRetainedValue(),
                     let mimetype = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?.takeRetainedValue() {
                 return mimetype as String
             }
             return "application/octet-stream"
+            #else
+            return "application/octet-stream"
+            #endif
         }
         return "application/octet-stream"
     }
