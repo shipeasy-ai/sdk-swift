@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.1
+
+Linux build support (the SDK now compiles + tests on Linux, not just Apple).
+
+### Fixed
+
+- Replace the Apple-only `CryptoKit` SHA-256 with a dependency-free pure-Swift
+  implementation (byte-identical output) so the SDK builds on Linux.
+- Guard `URLSession`/`URLRequest` behind `#if canImport(FoundationNetworking)`
+  and add a cross-platform `URLSession.data(for:)` (Linux swift-corelibs lacks the
+  async form); guard the CoreFoundation `CFBooleanGetTypeID` extras check behind
+  `#if canImport(Darwin)`.
+- `ShipeasyAdmin`: fix the generated client's Linux build (MobileCoreServices /
+  FoundationNetworking / CoreServices MIME guards).
+
 ## 0.11.0
 
 Ship the generated OpenAPI **admin** client alongside the flags SDK.
