@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.0
+
+Ship the generated OpenAPI **admin** client alongside the flags SDK.
+
+### Added
+
+- **`ShipeasyAdmin`** — a new SwiftPM library product exposing a generated
+  (OpenAPI, URLSession, async/await) client for the Shipeasy **admin** API
+  (flags / experiments / configs / kill switches / metrics / errors / ops — full
+  CRUD + reads). Import with `import ShipeasyAdmin`; it is a separate module with
+  zero external dependencies, so existing `import Shipeasy` (flags) consumers are
+  unaffected unless they opt in. Generated from the admin OpenAPI spec via
+  `openapi-generator` (see `apps/mobile` → `pnpm gen:clients swift`).
+
 ## 0.10.0
 
 The uniform SDK DX standard (experiment-platform doc 23). The documented surface
