@@ -5,7 +5,10 @@
 //
 
 import Foundation
-#if !os(macOS)
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(MobileCoreServices)
 import MobileCoreServices
 #endif
 #if canImport(UniformTypeIdentifiers)
