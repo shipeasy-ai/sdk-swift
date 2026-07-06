@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 
 /// Per-evaluation usage telemetry. Fires one fire-and-forget HTTP beacon per
 /// evaluation so usage is counted by Cloudflare's native per-path analytics.
@@ -71,6 +70,8 @@ final class Telemetry: @unchecked Sendable {
     }
 
     private static func sha256Hex(_ input: String) -> String {
-        SHA256.hash(data: Data(input.utf8)).map { String(format: "%02x", $0) }.joined()
+        // Vendored SHA-256 (see Sha256.swift) — CryptoKit is Apple-only and would
+        // break the Linux build. Byte-identical output.
+        SESHA256.hex(input)
     }
 }
