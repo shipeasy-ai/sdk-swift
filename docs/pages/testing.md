@@ -28,7 +28,8 @@ final class FlagTests: XCTestCase {
         let body: [String: Any] = [
             "flags": ["new_ui": true],
             "configs": ["theme": ["accent": "blue"]],
-            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"]]],
+            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"], "universe": "checkout"]],
+            "universes": ["checkout": ["defaults": ["copy": "default"]]],
             "killswitches": ["payments": true],
         ]
         let data = try JSONSerialization.data(withJSONObject: body)
@@ -74,14 +75,18 @@ map is an empty map):
 {
   "flags": { "new_ui": true },
   "configs": { "theme": { "accent": "blue" } },
-  "experiments": { "exp1": { "inExperiment": true, "group": "treatment", "params": { "copy": "hi" } } },
+  "experiments": { "exp1": { "inExperiment": true, "group": "treatment", "params": { "copy": "hi" }, "universe": "checkout" } },
+  "universes": { "checkout": { "defaults": { "copy": "default" } } },
   "killswitches": { "payments": true }
 }
 ```
 
-Before the first `identify`/evaluate, every read returns the supplied default
-(`getFlag` → `false`/your default, `getConfig` → `nil`/your default,
-`getExperiment` → `inExperiment: false`). See the real patterns in
+Each experiment entry carries its owning `universe`; the top-level `universes` map
+holds each universe's `defaults`, which `universe(name).assign().get(field)` falls
+back to when the unit isn't enrolled. Before the first `identify`/evaluate, every
+read returns the supplied default (`getFlag` → `false`/your default, `getConfig` →
+`nil`/your default, `universe(name).assign()` → not enrolled). See the real
+patterns in
 `Tests/ShipeasyTests/ClientModeTests.swift` and `Tests/ShipeasyTests/SeeTests.swift`.
 
 ## Resetting global state

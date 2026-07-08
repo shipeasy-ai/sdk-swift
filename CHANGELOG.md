@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.0.0 — 2026-07-08
+
+### Changed (BREAKING) — universe-first experiment assignment
+
+Experiments are now read through a **universe**, a mutual-exclusion pool: a device
+user lands in **at most one** experiment per universe. You no longer read an
+experiment by name — you ask a universe for an assignment.
+
+```swift
+let a = await client.universe("checkout").assign()   // auto-logs one exposure when enrolled
+if a.enrolled, a.group == "treatment" { … }
+let color = a.get("button_color", "blue")            // variant override ?? universe default ?? fallback
+```
+
+- **Removed** `ShipeasyClient.getExperiment(_:defaultParams:)` and
+  `ShipeasyClient.logExposure(_:)`, and the `ExperimentResult` struct. There is no
+  direct experiment read anymore.
+- **Added** `ShipeasyClient.universe(_:) -> UniverseHandle`, whose
+  `assign(logExposure: Bool = true) async -> Assignment` picks the ≤1 experiment
+  the unit is enrolled in within the universe and **auto-logs a single exposure**
+  when enrolled (pass `logExposure: false` to suppress).
+- **Added** the public `struct Assignment: Sendable` — `name` / `group` (both
+  optional; `nil` when not enrolled), the computed `enrolled`, and
+  `get<T>(_:_:) -> T?` / `get(_:) -> Any?` which resolve a param as
+  variant override ?? universe default ?? fallback. A not-enrolled unit still
+  resolves `get()` to the universe defaults.
+- The cached `/sdk/evaluate` response now carries a `universe` field on each
+  experiment entry and a top-level `universes: { name: { defaults } }` map;
+  enrolled `params` are pre-merged (universe defaults ⊕ variant) by the edge.
+
+Migration: replace `getExperiment("exp") { … logExposure("exp") }` with
+`universe("<universe>").assign()` and branch on `.group` / `.get(field, fallback)`
+— the exposure is automatic.
+
 ## 1.0.0 — 2026-07-08
 
 ### Changed (BREAKING) — client-only pivot

@@ -27,8 +27,8 @@ Users are taught exactly **two** things, and the docs must never drift from them
    first-config-wins). Returns the process-global `ShipeasyClient`; fetch it later
    with `shipeasyClient()`.
 2. **`ShipeasyClient`** — the actor for *everything*: `identify(_:)` / `reset()` /
-   `refreshAssignments()`, the reads `getFlag` / `getConfig` / `getExperiment` /
-   `getKillswitch`, and `track(_:properties:)` / `logExposure(_:)`. All `async`.
+   `refreshAssignments()`, the reads `getFlag` / `getConfig` / `getKillswitch`,
+   universe assignment via `universe(_:).assign()`, and `track(_:properties:)`. All `async`.
 
 Plus the package-level `see()` / `seeViolation()` / `controlFlowException()` error
 reporting (dispatched by the configured client), the `AnonymousStore` protocol +

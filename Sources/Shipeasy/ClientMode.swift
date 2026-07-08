@@ -88,7 +88,11 @@ public actor ShipeasyClient {
 
     private var flags: [String: Bool] = [:]
     private var configs: [String: Any] = [:]
-    private var experiments: [String: ExperimentResult] = [:]
+    private var experiments: [String: CachedExperiment] = [:]
+    /// Per-universe param defaults (`name → default map`) from the cached
+    /// response, so ``universe(_:)`` resolves `get(field)` to the universe default
+    /// even when the unit is not enrolled in any experiment there.
+    private var universes: [String: [String: Any]] = [:]
     private var killswitches: [String: Any] = [:]
     /// Opaque sticky-bucketing state echoed back to the edge on each evaluate so
     /// enrolled units stay pinned to their variant across allocation changes.
@@ -217,17 +221,45 @@ public actor ShipeasyClient {
         return v is NSNull ? nil : v
     }
 
-    /// The experiment assignment for the bound user. `defaultParams` fills in
-    /// `params` when the user is not enrolled or the server sent none.
-    public func getExperiment(_ name: String, defaultParams: Any? = nil) -> ExperimentResult {
+    /// Assign the device user within a universe: `universe("checkout").assign()`.
+    /// A universe is a mutual-exclusion pool, so the unit lands in **≤1**
+    /// experiment; the returned ``Assignment`` exposes `.group` /
+    /// `.get(field, fallback)` and auto-logs one exposure when enrolled (unless
+    /// `assign(logExposure: false)` or telemetry is disabled). A not-enrolled unit
+    /// still resolves `get()` to the universe defaults. This is the sole
+    /// experiment read path — there is no `getExperiment` (ask a universe, not an
+    /// experiment).
+    public func universe(_ name: String) -> UniverseHandle {
+        UniverseHandle(client: self, name: name)
+    }
+
+    /// Reusable handle bound to one universe; call `assign()` to pick the unit's
+    /// ≤1 experiment there. Returned by ``ShipeasyClient/universe(_:)``.
+    public struct UniverseHandle: Sendable {
+        let client: ShipeasyClient
+        let name: String
+
+        /// Assign the bound device user within this universe. Auto-logs one
+        /// exposure when enrolled (pass `logExposure: false` to suppress). Reads
+        /// are `async` because the client is an `actor`.
+        public func assign(logExposure: Bool = true) async -> Assignment {
+            await client.assignUniverse(name, logExposure: logExposure)
+        }
+    }
+
+    /// Scan the cached experiments for the ≤1 the unit is enrolled into within
+    /// `name`; auto-log a single exposure when enrolled. A not-enrolled unit
+    /// resolves to the universe defaults.
+    func assignUniverse(_ name: String, logExposure: Bool) -> Assignment {
         telemetry.emit("experiment", name)
-        guard ready, let r = experiments[name] else {
-            return ExperimentResult(inExperiment: false, group: "control", params: defaultParams)
+        let defaults = universes[name] ?? [:]
+        guard ready else { return Assignment(name: nil, group: nil, params: defaults) }
+        for (expName, entry) in experiments where entry.universe == name && entry.inExperiment {
+            if logExposure { emitExposure(experiment: expName, group: entry.group) }
+            // Params are already merged (universe defaults ⊕ variant) by the edge.
+            return Assignment(name: expName, group: entry.group, params: entry.params ?? defaults)
         }
-        if r.params == nil {
-            return ExperimentResult(inExperiment: r.inExperiment, group: r.group, params: defaultParams)
-        }
-        return r
+        return Assignment(name: nil, group: nil, params: defaults)
     }
 
     /// Whether kill switch `name` (optionally a named per-key override) is
@@ -261,14 +293,14 @@ public actor ShipeasyClient {
         send(event: ev)
     }
 
-    /// Emit an exposure for `experiment` at the decision point, for the bound
-    /// user. No-op when the user is not enrolled. Fire-and-forget.
-    public func logExposure(_ experiment: String) {
-        guard let r = experiments[experiment], r.inExperiment else { return }
+    /// Emit one exposure for the enrolled unit at the decision point. Called by
+    /// ``assignUniverse(_:logExposure:)`` when the unit is enrolled. Fire-and-
+    /// forget; never blocks.
+    private func emitExposure(experiment: String, group: String) {
         var ev: [String: Any] = [
             "type": "exposure",
             "experiment": experiment,
-            "group": r.group,
+            "group": group,
             "anonymous_id": anonymousId,
             "ts": Int(Date().timeIntervalSince1970 * 1000),
         ]
@@ -364,17 +396,28 @@ public actor ShipeasyClient {
         if let c = root["configs"] as? [String: Any] { configs = c }
         if let k = root["killswitches"] as? [String: Any] { killswitches = k }
         if let e = root["experiments"] as? [String: Any] {
-            var out: [String: ExperimentResult] = [:]
+            var out: [String: CachedExperiment] = [:]
             for (name, raw) in e {
                 guard let m = raw as? [String: Any] else { continue }
                 let params = m["params"]
-                out[name] = ExperimentResult(
+                out[name] = CachedExperiment(
                     inExperiment: (m["inExperiment"] as? Bool) ?? false,
                     group: (m["group"] as? String) ?? "control",
-                    params: params is NSNull ? nil : params
+                    params: (params is NSNull ? nil : params) as? [String: Any],
+                    universe: m["universe"] as? String
                 )
             }
             experiments = out
+        }
+        // Top-level `universes: { name: { defaults: {...} } }` so a not-enrolled
+        // unit still resolves `universe(name).assign().get(field)` to the default.
+        if let u = root["universes"] as? [String: Any] {
+            var out: [String: [String: Any]] = [:]
+            for (name, raw) in u {
+                let defaults = (raw as? [String: Any])?["defaults"] as? [String: Any]
+                out[name] = defaults ?? [:]
+            }
+            universes = out
         }
         if let s = root["sticky"] as? [String: Any] {
             sticky = s

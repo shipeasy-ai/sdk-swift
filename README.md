@@ -76,7 +76,7 @@ launch, then `await shipeasyClient()?.getFlag(...)` anywhere.
 | [Feature flags](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/flags.md) | `getFlag`, defaults, cached reads. |
 | [Dynamic configs](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/configs.md) | `getConfig`, typed reads, defaults. |
 | [Kill switches](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/killswitches.md) | `getKillswitch`, named switches. |
-| [Experiments](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/experiments.md) | `getExperiment`, `logExposure`, `track`. |
+| [Experiments](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/experiments.md) | `universe(name).assign()`, `Assignment`, `track`. |
 | [Internationalization](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/i18n.md) | Not part of the native client SDK. |
 | [Error reporting](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/error-reporting.md) | `see()` structured error reporting. |
 | [Testing](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/testing.md) | Hermetic tests: inject an `AnonymousStore` + transport stub. |
@@ -110,7 +110,8 @@ final class FlagTests: XCTestCase {
         let body: [String: Any] = [
             "flags": ["new_ui": true],
             "configs": ["theme": ["accent": "blue"]],
-            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"]]],
+            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"], "universe": "checkout"]],
+            "universes": ["checkout": ["defaults": ["copy": "default"]]],
             "killswitches": ["payments": true],
         ]
         let data = try JSONSerialization.data(withJSONObject: body)

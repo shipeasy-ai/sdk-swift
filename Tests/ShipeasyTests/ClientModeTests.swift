@@ -93,10 +93,11 @@ final class ClientModeTests: XCTestCase {
         let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
         let f = await client.getFlag("f", default: false)
         let c = await client.getConfig("c")
-        let e = await client.getExperiment("e")
+        let a = await client.universe("checkout").assign()
         XCTAssertFalse(f)
         XCTAssertNil(c)
-        XCTAssertFalse(e.inExperiment)
+        XCTAssertFalse(a.enrolled)
+        XCTAssertNil(a.group)
     }
 
     func testIdentifyEvaluatesAndCaches() async {
@@ -104,7 +105,8 @@ final class ClientModeTests: XCTestCase {
         let stub = StubTransport(evaluateResponse: [
             "flags": ["new_ui": true],
             "configs": ["theme": ["accent": "blue"]],
-            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"]]],
+            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"], "universe": "checkout"]],
+            "universes": ["checkout": ["defaults": ["copy": "default"]]],
             "killswitches": ["payments": true],
         ])
         let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
@@ -114,15 +116,106 @@ final class ClientModeTests: XCTestCase {
         XCTAssertTrue(f)
         let cfg = await client.getConfig("theme") as? [String: Any]
         XCTAssertEqual(cfg?["accent"] as? String, "blue")
-        let e = await client.getExperiment("exp1")
-        XCTAssertTrue(e.inExperiment)
-        XCTAssertEqual(e.group, "treatment")
+        let a = await client.universe("checkout").assign()
+        XCTAssertTrue(a.enrolled)
+        XCTAssertEqual(a.name, "exp1")
+        XCTAssertEqual(a.group, "treatment")
         let ks = await client.getKillswitch("payments")
         XCTAssertTrue(ks)
 
         // Auth header carried the client key on the evaluate call.
         let evalReq = stub.requestsFor("/sdk/evaluate").first
         XCTAssertEqual(evalReq?.value(forHTTPHeaderField: "X-SDK-Key"), "pk")
+    }
+
+    /// Enrolled: `assign()` reads the variant params the edge pre-merged, and
+    /// auto-logs exactly one exposure to /collect.
+    func testUniverseAssignEnrolledReadsVariantAndLogsExposure() async {
+        let store = MemStore([AnonId.cookie: "anon_e"])
+        let stub = StubTransport(evaluateResponse: [
+            "flags": [:], "configs": [:], "killswitches": [:],
+            "experiments": ["exp1": [
+                "inExperiment": true, "group": "treatment",
+                // Edge pre-merges universe defaults ⊕ variant into params.
+                "params": ["button_color": "blue", "size": 1], "universe": "checkout",
+            ]],
+            "universes": ["checkout": ["defaults": ["button_color": "red", "size": 1]]],
+        ])
+        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        await client.identify(["user_id": "u1"])
+
+        let a = await client.universe("checkout").assign()
+        XCTAssertTrue(a.enrolled)
+        XCTAssertEqual(a.name, "exp1")
+        XCTAssertEqual(a.group, "treatment")
+        // Variant override wins; unset field inherited (pre-merged); absent → fallback.
+        XCTAssertEqual(a.get("button_color", "x"), "blue")
+        XCTAssertEqual(a.get("size", 0), 1)
+        XCTAssertEqual(a.get("missing", "fb"), "fb")
+
+        // Exactly one exposure auto-logged for the enrolled unit.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        let exposures = stub.requestsFor("/collect").compactMap { bodyJSON($0) }
+            .compactMap { ($0["events"] as? [[String: Any]])?.first }
+            .filter { $0["type"] as? String == "exposure" }
+        XCTAssertEqual(exposures.count, 1)
+        XCTAssertEqual(exposures.first?["experiment"] as? String, "exp1")
+        XCTAssertEqual(exposures.first?["group"] as? String, "treatment")
+        XCTAssertEqual(exposures.first?["anonymous_id"] as? String, "anon_e")
+    }
+
+    /// Not enrolled: `assign()` resolves `get()` to the universe defaults, no
+    /// exposure is emitted, and group/name are nil.
+    func testUniverseAssignNotEnrolledResolvesUniverseDefaults() async {
+        let store = MemStore()
+        let stub = StubTransport(evaluateResponse: [
+            "flags": [:], "configs": [:], "killswitches": [:],
+            "experiments": ["exp1": [
+                "inExperiment": false, "group": "control", "universe": "checkout",
+            ]],
+            "universes": ["checkout": ["defaults": ["button_color": "red"]]],
+        ])
+        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        await client.identify(["user_id": "u1"])
+
+        let a = await client.universe("checkout").assign()
+        XCTAssertFalse(a.enrolled)
+        XCTAssertNil(a.name)
+        XCTAssertNil(a.group)
+        // Not enrolled → universe default resolves.
+        XCTAssertEqual(a.get("button_color", "x"), "red")
+        XCTAssertEqual(a.get("missing", "fb"), "fb")
+
+        // No exposure for a not-enrolled unit.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        let exposures = stub.requestsFor("/collect").compactMap { bodyJSON($0) }
+            .compactMap { ($0["events"] as? [[String: Any]])?.first }
+            .filter { $0["type"] as? String == "exposure" }
+        XCTAssertTrue(exposures.isEmpty)
+    }
+
+    /// `assign(logExposure: false)` suppresses the auto-exposure while still
+    /// returning the enrolled assignment.
+    func testUniverseAssignSuppressesExposureWhenAsked() async {
+        let store = MemStore()
+        let stub = StubTransport(evaluateResponse: [
+            "flags": [:], "configs": [:], "killswitches": [:],
+            "experiments": ["exp1": [
+                "inExperiment": true, "group": "treatment", "params": [:], "universe": "checkout",
+            ]],
+            "universes": ["checkout": ["defaults": [:]]],
+        ])
+        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        await client.identify(["user_id": "u1"])
+
+        let a = await client.universe("checkout").assign(logExposure: false)
+        XCTAssertTrue(a.enrolled)
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        let exposures = stub.requestsFor("/collect").compactMap { bodyJSON($0) }
+            .compactMap { ($0["events"] as? [[String: Any]])?.first }
+            .filter { $0["type"] as? String == "exposure" }
+        XCTAssertTrue(exposures.isEmpty)
     }
 
     func testFailedEvaluateIsNonFatal() async {

@@ -1,21 +1,19 @@
-Read the assignment for `{{EXPERIMENT_KEY}}`, branch on the group, and track the
-conversion event — all from the configured `ShipeasyClient`. Assumes
-`configureClient(...)` ran at startup — see Installation.
+Assign the device user within the `{{EXPERIMENT_KEY}}` universe (a mutual-exclusion
+pool → ≤1 experiment), branch on the group, and track the conversion event — all
+from the configured `ShipeasyClient`. Assumes `configureClient(...)` ran at startup
+— see Installation.
 
 ```swift
 let client = shipeasyClient()!   // configured once at app launch
 
-// name; defaultParams: params returned when the user isn't enrolled (nil for none)
-let r = await client.getExperiment("{{EXPERIMENT_KEY}}", defaultParams: ["color": "blue"])
+// universe name; assign() auto-logs one exposure when enrolled
+let a = await client.universe("{{EXPERIMENT_KEY}}").assign()
 
-if r.inExperiment, r.group == "treatment" {
-    // r.params holds the variant params — cast to your shape
-    let color = (r.params as? [String: Any])?["color"] as? String
+if a.enrolled, a.group == "treatment" {
+    // get(field, fallback): variant override ?? universe default ?? fallback
+    let color = a.get("button_color", "blue")
     // render the treatment variant
 }
-
-// record the exposure at the point you present the variant (no-op when not enrolled)
-await client.logExposure("{{EXPERIMENT_KEY}}")
 
 // conversion event — the unit is the identified user (no id argument);
 // event name; optional `properties:` bag (default [:])

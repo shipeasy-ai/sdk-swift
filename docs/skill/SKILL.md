@@ -1,6 +1,6 @@
 ---
 name: shipeasy-swift
-description: Use Shipeasy from a native iOS/macOS/tvOS/watchOS app in Swift — feature flags, dynamic configs, kill switches, A/B experiments, metric tracking, and see() error reporting. The native client SDK uses a public client key (pk_…, safe to embed), configureClient() once at launch returns a ShipeasyClient actor, identify() binds the device user and refreshes assignments, and getFlag/getConfig/getExperiment/getKillswitch serve cached reads. Persists the device anonymous_id across launches so bucketing is stable. SwiftPM (iOS 15+/macOS 12+/tvOS 15+/watchOS 8+).
+description: Use Shipeasy from a native iOS/macOS/tvOS/watchOS app in Swift — feature flags, dynamic configs, kill switches, A/B experiments, metric tracking, and see() error reporting. The native client SDK uses a public client key (pk_…, safe to embed), configureClient() once at launch returns a ShipeasyClient actor, identify() binds the device user and refreshes assignments, getFlag/getConfig/getKillswitch serve cached reads, and universe(name).assign() returns an experiment Assignment. Persists the device anonymous_id across launches so bucketing is stable. SwiftPM (iOS 15+/macOS 12+/tvOS 15+/watchOS 8+).
 ---
 
 # Shipeasy Swift SDK (native client)
@@ -78,10 +78,10 @@ let id = await client.anonymousId             // stable, persisted device bucket
 
 ```swift
 let client = shipeasyClient()!
-let r = await client.getExperiment("checkout_button", defaultParams: ["color": "blue"])
-// r.inExperiment: Bool, r.group: String, r.params: Any?
-
-await client.logExposure("checkout_button")                   // record where you present it
+// A universe is a mutual-exclusion pool → the unit lands in ≤1 experiment.
+let a = await client.universe("checkout").assign()            // auto-logs one exposure when enrolled
+// a.name: String?, a.group: String?, a.enrolled: Bool
+let color = a.get("button_color", "blue")                    // variant override ?? universe default ?? fallback
 await client.track("purchase", properties: ["amount": 49])    // conversion (fire-and-forget)
 ```
 

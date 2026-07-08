@@ -31,7 +31,7 @@ let pageBlurb: [String: String] = [
     "flags": "`getFlag`, defaults, cached reads.",
     "configs": "`getConfig`, typed reads, defaults.",
     "killswitches": "`getKillswitch`, named switches.",
-    "experiments": "`getExperiment`, `logExposure`, `track`.",
+    "experiments": "`universe(name).assign()`, `Assignment`, `track`.",
     "i18n": "Not part of the native client SDK.",
     "error-reporting": "`see()` structured error reporting.",
     "testing": "Hermetic tests: inject an `AnonymousStore` + transport stub.",
