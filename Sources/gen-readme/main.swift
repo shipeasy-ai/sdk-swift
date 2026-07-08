@@ -25,18 +25,18 @@ let pageTitle: [String: String] = [
     "testing": "Testing", "openfeature": "OpenFeature", "advanced": "Advanced",
 ]
 let pageBlurb: [String: String] = [
-    "overview": "The `configure()` + `Client(user)` model.",
-    "installation": "Install (SwiftPM), Vapor / Hummingbird, `configure()` wiring.",
-    "configuration": "Keys, `attributes`, one-shot vs poll, every option.",
-    "flags": "`getFlag`, `getFlagDetail`, defaults.",
+    "overview": "The `configureClient()` + `ShipeasyClient` model.",
+    "installation": "Install (SwiftPM), where to call `configureClient()`, custom `AnonymousStore`.",
+    "configuration": "`configureClient()` key, options, the persisted anon id.",
+    "flags": "`getFlag`, defaults, cached reads.",
     "configs": "`getConfig`, typed reads, defaults.",
     "killswitches": "`getKillswitch`, named switches.",
     "experiments": "`getExperiment`, `logExposure`, `track`.",
-    "i18n": "SSR bootstrap + i18n loader tags.",
+    "i18n": "Not part of the native client SDK.",
     "error-reporting": "`see()` structured error reporting.",
-    "testing": "`configureForTesting` / `configureForOffline`, overrides.",
+    "testing": "Hermetic tests: inject an `AnonymousStore` + transport stub.",
     "openfeature": "OpenFeature interop notes.",
-    "advanced": "Anon-id, private attributes, sticky bucketing, SSR.",
+    "advanced": "Anon-id persistence, private attributes, `refreshAssignments`.",
 ]
 
 let fm = FileManager.default
@@ -96,7 +96,7 @@ else {
 
 let install = { () -> String in
     let c = firstCode(read("pages/installation.md"), "bash")
-    return c.isEmpty ? ".package(url: \"https://github.com/\(owner)/\(repo)\", from: \"0.10.0\")" : c
+    return c.isEmpty ? ".package(url: \"https://github.com/\(owner)/\(repo)\", from: \"1.0.0\")" : c
 }()
 let quickstart = firstCode(read("pages/overview.md"), "swift")
 let testingMd = read("pages/testing.md")
@@ -124,11 +124,13 @@ let readme = """
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20iOS%20%7C%20Linux-lightgrey.svg)](https://github.com/\(owner)/\(repo))
 
-SDK for [Shipeasy](https://shipeasy.ai) — **feature flags, dynamic configs, kill
-switches, A/B experiments, and metric tracking** for Swift. Two front doors:
-`configure()` + `Client(user)` on a **server** (server key), and
-`configureClient()` + `ShipeasyClient` in a **shipped iOS/macOS app** (public
-client key, persisted device anon id). Never embed a server key in an app bundle.
+Native **client** SDK for [Shipeasy](https://shipeasy.ai) — **feature flags,
+dynamic configs, kill switches, A/B experiments, and metric tracking** for shipped
+**iOS / macOS / tvOS / watchOS** apps. Configure once with your **public client
+key** (`pk_…`, safe to embed); `ShipeasyClient` evaluates the device user
+server-side over `POST /sdk/evaluate`, caches the assignments for cheap local
+reads, and **persists the device `anonymous_id` across launches** so a logged-out
+user buckets identically on every cold start.
 
 > 📚 **Full documentation:** **<\(pagesSite)/>** — also browsable under
 > [`docs/`](\(blob)/docs). This README is generated from those docs.
@@ -136,8 +138,8 @@ client key, persisted device anon id). Never embed a server key in an app bundle
 ## 🤖 Using an AI agent?
 
 This SDK ships an installable **agent skill** — a copy-paste-ready guide to
-`configure()` + `Client(user)`, testing, experiments, error reporting, and more,
-with links the agent can pull for deeper docs:
+`configureClient()` + `ShipeasyClient`, experiments, error reporting, testing, and
+more, with links the agent can pull for deeper docs:
 
 - **Skill:** [`docs/skill/SKILL.md`](\(blob)/docs/skill/SKILL.md) · raw:
   `\(pagesSite)/skill/SKILL.md`
@@ -156,16 +158,18 @@ doc page and snippet is also fetchable by URL — start from the manifest at
 \(install)
 ```
 
-Per-framework setup (Vapor / Hummingbird) is on the
+Where to call `configureClient()` (App / `@main` / SceneDelegate) and how to plug
+in a custom `AnonymousStore` (Keychain / app group / tests) is on the
 [Installation](\(blob)/docs/pages/installation.md) page.
 
-## Quickstart — `configure()` once, then `Client(user)` per request
+## Quickstart — `configureClient()` once, then read from `ShipeasyClient`
 
 ```swift
 \(quickstart)
 ```
 
-Constructing `Client(user)` before `configure()` throws.
+Reads serve the cached assignments (no per-call network) — configure once at
+launch, then `await shipeasyClient()?.getFlag(...)` anywhere.
 
 ## Documentation
 
@@ -185,13 +189,12 @@ Copy-paste snippets live under [`docs/snippets/`](\(blob)/docs/snippets)
 \(testingCode)
 ```
 
-More — the on-the-spot override helpers and a working example snapshot file — on
-the [Testing](\(blob)/docs/pages/testing.md) page.
+More — the in-memory `AnonymousStore` and transport-stub pattern for hermetic
+tests — on the [Testing](\(blob)/docs/pages/testing.md) page.
 
 ## License
 
-See [LICENSE](\(blob)/LICENSE). Evaluation is tested against the cross-language
-MurmurHash3 vectors in `experiment-platform/04-evaluation.md`.
+See [LICENSE](\(blob)/LICENSE).
 
 """
 

@@ -9,11 +9,13 @@
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20iOS%20%7C%20Linux-lightgrey.svg)](https://github.com/shipeasy-ai/sdk-swift)
 
-SDK for [Shipeasy](https://shipeasy.ai) — **feature flags, dynamic configs, kill
-switches, A/B experiments, and metric tracking** for Swift. Two front doors:
-`configure()` + `Client(user)` on a **server** (server key), and
-`configureClient()` + `ShipeasyClient` in a **shipped iOS/macOS app** (public
-client key, persisted device anon id). Never embed a server key in an app bundle.
+Native **client** SDK for [Shipeasy](https://shipeasy.ai) — **feature flags,
+dynamic configs, kill switches, A/B experiments, and metric tracking** for shipped
+**iOS / macOS / tvOS / watchOS** apps. Configure once with your **public client
+key** (`pk_…`, safe to embed); `ShipeasyClient` evaluates the device user
+server-side over `POST /sdk/evaluate`, caches the assignments for cheap local
+reads, and **persists the device `anonymous_id` across launches** so a logged-out
+user buckets identically on every cold start.
 
 > 📚 **Full documentation:** **<https://shipeasy-ai.github.io/sdk-swift/>** — also browsable under
 > [`docs/`](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs). This README is generated from those docs.
@@ -21,8 +23,8 @@ client key, persisted device anon id). Never embed a server key in an app bundle
 ## 🤖 Using an AI agent?
 
 This SDK ships an installable **agent skill** — a copy-paste-ready guide to
-`configure()` + `Client(user)`, testing, experiments, error reporting, and more,
-with links the agent can pull for deeper docs:
+`configureClient()` + `ShipeasyClient`, experiments, error reporting, testing, and
+more, with links the agent can pull for deeper docs:
 
 - **Skill:** [`docs/skill/SKILL.md`](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/skill/SKILL.md) · raw:
   `https://shipeasy-ai.github.io/sdk-swift/skill/SKILL.md`
@@ -38,41 +40,48 @@ doc page and snippet is also fetchable by URL — start from the manifest at
 ## Install
 
 ```bash
-.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "0.10.0")
+.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "1.0.0")
 ```
 
-Per-framework setup (Vapor / Hummingbird) is on the
+Where to call `configureClient()` (App / `@main` / SceneDelegate) and how to plug
+in a custom `AnonymousStore` (Keychain / app group / tests) is on the
 [Installation](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/installation.md) page.
 
-## Quickstart — `configure()` once, then `Client(user)` per request
+## Quickstart — `configureClient()` once, then read from `ShipeasyClient`
 
 ```swift
 import Shipeasy
 
-configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
+// Once, at app launch — PUBLIC client key (pk_…), safe to embed:
+let client = configureClient(clientKey: "pk_live_…")
 
-let client = try Client(["user_id": "u_123", "plan": "pro"])
+// Bind the user (pass [:] for a logged-out visitor). Awaiting the first identify
+// guarantees the first reads see assignments:
+await client.identify(["user_id": "u_123", "plan": "pro"])
+
+// Reads serve the cached /sdk/evaluate response (no per-call network):
 let enabled = await client.getFlag("new_checkout")
 ```
 
-Constructing `Client(user)` before `configure()` throws.
+Reads serve the cached assignments (no per-call network) — configure once at
+launch, then `await shipeasyClient()?.getFlag(...)` anywhere.
 
 ## Documentation
 
 | Page | What |
 | --- | --- |
-| [Overview](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/overview.md) | The `configure()` + `Client(user)` model. |
-| [Installation](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/installation.md) | Install (SwiftPM), Vapor / Hummingbird, `configure()` wiring. |
-| [Configuration](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/configuration.md) | Keys, `attributes`, one-shot vs poll, every option. |
-| [Feature flags](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/flags.md) | `getFlag`, `getFlagDetail`, defaults. |
+| [Overview](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/overview.md) | The `configureClient()` + `ShipeasyClient` model. |
+| [Installation](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/installation.md) | Install (SwiftPM), where to call `configureClient()`, custom `AnonymousStore`. |
+| [Configuration](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/configuration.md) | `configureClient()` key, options, the persisted anon id. |
+| [Feature flags](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/flags.md) | `getFlag`, defaults, cached reads. |
 | [Dynamic configs](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/configs.md) | `getConfig`, typed reads, defaults. |
 | [Kill switches](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/killswitches.md) | `getKillswitch`, named switches. |
 | [Experiments](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/experiments.md) | `getExperiment`, `logExposure`, `track`. |
-| [Internationalization](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/i18n.md) | SSR bootstrap + i18n loader tags. |
+| [Internationalization](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/i18n.md) | Not part of the native client SDK. |
 | [Error reporting](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/error-reporting.md) | `see()` structured error reporting. |
-| [Testing](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/testing.md) | `configureForTesting` / `configureForOffline`, overrides. |
+| [Testing](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/testing.md) | Hermetic tests: inject an `AnonymousStore` + transport stub. |
 | [OpenFeature](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/openfeature.md) | OpenFeature interop notes. |
-| [Advanced](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/advanced.md) | Anon-id, private attributes, sticky bucketing, SSR. |
+| [Advanced](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/advanced.md) | Anon-id persistence, private attributes, `refreshAssignments`. |
 
 Copy-paste snippets live under [`docs/snippets/`](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/snippets)
 (release · metrics · i18n · ops); an installable agent skill is at
@@ -80,36 +89,53 @@ Copy-paste snippets live under [`docs/snippets/`](https://github.com/shipeasy-ai
 
 ## Testing
 
-For unit tests, configure Shipeasy in **test mode** with `configureForTesting(...)` — a drop-in sibling of `configure(...)` that does **zero network**, needs **no API key**, and is immediately ready. Seed the values your code under test should see, then read them through the ordinary bound `Client`. It **replaces** any previous configuration, so each test can reconfigure freely.
+Tests run **hermetically** — no network, no `UserDefaults` — by constructing a
 
 ```swift
-import Shipeasy
+import XCTest
+@testable import Shipeasy
 
-// no key, no network; seed what the code under test should see
-await configureForTesting(
-    flags: ["new_checkout": true],                                  // [name: Bool]
-    configs: ["billing_copy": ["headline": "50% off"]],             // [name: Any?]
-    experiments: ["checkout_button": (group: "treatment",           // [name: (group, params)]
-                                      params: ["color": "green"])]
-)
+final class FlagTests: XCTestCase {
+    /// In-memory AnonymousStore standing in for UserDefaults/Keychain.
+    final class MemStore: AnonymousStore, @unchecked Sendable {
+        private let lock = NSLock()
+        private var map: [String: String]
+        init(_ seed: [String: String] = [:]) { self.map = seed }
+        func get(_ key: String) -> String? { lock.lock(); defer { lock.unlock() }; return map[key] }
+        func set(_ key: String, _ value: String) { lock.lock(); defer { lock.unlock() }; map[key] = value }
+    }
 
-// construct once per callsite (cheap; binds the user)
-let client = try Client(["user_id": "u_123"])
+    /// Transport stub: replies to /sdk/evaluate with a canned assignments body.
+    private let stubTransport: ShipeasyClient.Transport = { req in
+        let body: [String: Any] = [
+            "flags": ["new_ui": true],
+            "configs": ["theme": ["accent": "blue"]],
+            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"]]],
+            "killswitches": ["payments": true],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        return (data, resp)
+    }
 
-await client.getFlag("new_checkout", default: false)   // true
-await client.getConfig("billing_copy")                 // ["headline": "50% off"]
+    func testFlagResolvesFromEvaluate() async {
+        let client = ShipeasyClient(
+            clientKey: "pk_test",
+            store: MemStore(),
+            disableTelemetry: true,          // never touch /collect in tests
+            transport: stubTransport
+        )
+        await client.identify(["user_id": "u1"])   // evaluate + cache
 
-let r = await client.getExperiment("checkout_button", defaultParams: nil)
-// r.inExperiment == true, r.group == "treatment", r.params == ["color": "green"]
-
-// track()/logExposure() are no-ops in test mode — safe to call, never send.
-await client.track("purchase")
+        let on = await client.getFlag("new_ui", default: false)
+        XCTAssertTrue(on)
+    }
+}
 ```
 
-More — the on-the-spot override helpers and a working example snapshot file — on
-the [Testing](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/testing.md) page.
+More — the in-memory `AnonymousStore` and transport-stub pattern for hermetic
+tests — on the [Testing](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs/pages/testing.md) page.
 
 ## License
 
-See [LICENSE](https://github.com/shipeasy-ai/sdk-swift/blob/main/LICENSE). Evaluation is tested against the cross-language
-MurmurHash3 vectors in `experiment-platform/04-evaluation.md`.
+See [LICENSE](https://github.com/shipeasy-ai/sdk-swift/blob/main/LICENSE).

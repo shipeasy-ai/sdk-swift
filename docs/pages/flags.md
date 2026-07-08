@@ -1,43 +1,38 @@
 # Flags
 
-A flag (a.k.a. *gate*) evaluates to a `Bool` for the bound user.
+A flag (a.k.a. *gate*) evaluates to a `Bool` for the identified device user.
+Reads are served from the local cache of the last `/sdk/evaluate` response — no
+per-call network, safe from any thread.
 
 ```swift
-let client = try Client(["user_id": "u_123", "plan": "pro"])
+let client = shipeasyClient()!
+await client.identify(["user_id": "u_123", "plan": "pro"])
 let enabled = await client.getFlag("new_checkout")
 ```
 
-`getFlag` returns `false` when the rules aren't ready yet or the gate is absent.
+`getFlag` returns the supplied `default` when the assignments aren't loaded yet
+(before the first `identify`/evaluate, or after a failed evaluate) or the gate is
+absent.
 
 ## Default / fallback behaviour
 
-`getFlag` takes an optional `default` returned **only when the value cannot be
-evaluated** (rules not ready, or the gate doesn't exist) — never when the gate
-simply evaluates to `false`:
+`getFlag` takes an optional `default` (defaults to `false`) returned **only when
+the value cannot be evaluated** (assignments not loaded, or the gate doesn't
+exist) — never when the gate simply evaluates to `false`:
 
 ```swift
 let on = await client.getFlag("new_checkout", default: true)
 ```
 
-A flag that exists and evaluates to `false` still returns `false`; the default
-is purely a "can't decide yet" fallback.
+A flag that exists and evaluates to `false` still returns `false`; the default is
+purely a "can't decide yet" fallback.
 
-## Evaluation detail
+## Picking up a change
 
-`getFlagDetail` returns both the value and the reason it resolved that way —
-useful for debugging targeting and rollout. `getFlag` is `getFlagDetail().value`.
+To re-evaluate for the current user (e.g. after you publish a flag), call
+`refreshAssignments()` and read again:
 
 ```swift
-let d = await client.getFlagDetail("new_checkout")
-// d.value  -> Bool
-// d.reason -> one of the FlagReason raw values (String)
+await client.refreshAssignments()
+let on = await client.getFlag("new_checkout")
 ```
-
-| Reason             | Meaning                                              |
-| ------------------ | ---------------------------------------------------- |
-| `OVERRIDE`         | A local `overrideFlag` supplied the value            |
-| `CLIENT_NOT_READY` | No live rules yet (haven't fetched)                  |
-| `FLAG_NOT_FOUND`   | The gate name isn't in the flags blob                |
-| `OFF`              | The gate exists but is disabled / killed             |
-| `RULE_MATCH`       | The gate evaluated to `true` (rules + rollout match) |
-| `DEFAULT`          | The gate evaluated to `false` (not targeted)         |

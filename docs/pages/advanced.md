@@ -2,78 +2,35 @@
 
 ## Private attributes
 
-Attribute names listed in `privateAttributes` are usable for targeting but are
-**stripped from every outbound `track()` payload** — the server evaluates
-locally, so private attrs never leave for evaluation; the only egress is
-`/collect`, where the listed keys are removed.
+Attribute names listed in `privateAttributes` on `configureClient(...)` are usable
+for targeting but are **stripped from every outbound telemetry payload** — the
+`track()` properties bag and the `see()` `.extras()` map. Targeting still works
+(the edge evaluates on the identified attributes); the private keys just never
+reach `/collect`:
 
 ```swift
-configure(apiKey: serverKey, privateAttributes: ["email", "ssn"])
+configureClient(clientKey: "pk_live_…", privateAttributes: ["email", "ssn"])
 ```
 
-## `bucketBy` — custom bucketing identifier
+## Anonymous id persistence — `AnonymousStore`
 
-Experiments and gates bucket on `user_id` (falling back to `anonymous_id`) by
-default. When the resource sets a `bucketBy` attribute (e.g. `company_id`),
-evaluation buckets on that attribute instead — so every user in a company gets
-the same variant. This is driven by the resource config (no SDK call needed);
-just make sure the named attribute is present in the bound user map:
+Persisting the device `anonymous_id` across launches is **the whole point** of the
+client SDK: without it a fresh UUID every cold start silently re-buckets every
+fractional rollout and experiment. By default the id lives in `UserDefaults`
+(`UserDefaultsAnonymousStore`).
 
-```swift
-// if the experiment's bucketBy is "company_id", include it in the user map
-let client = try Client(["user_id": "u_123", "company_id": "acme"])
-let r = await client.getExperiment("team_dashboard", defaultParams: nil)
-```
-
-## Sticky bucketing
-
-Pass a `StickyBucketStore` to `configure(...)` to **lock a unit to its
-first-assigned variant**. Once enrolled, changing the allocation % or weights
-won't re-bucket the unit — rotating the experiment salt is the reshuffle lever.
-Absent ⇒ deterministic (fully backward compatible).
+`AnonymousStore` is a two-method protocol:
 
 ```swift
-let store = InMemoryStickyBucketStore()
-configure(apiKey: serverKey, stickyStore: store)
-```
-
-`StickyBucketStore` is a protocol (`get` / `set` over `StickyEntry`), so you can
-back it with your own persistence (Redis, a DB, etc.). `InMemoryStickyBucketStore`
-is provided for tests and single-process use.
-
-## Anonymous visitors
-
-For logged-out traffic you need a *stable* unit so a fractional rollout buckets
-the same on the server and in the browser. `AnonId` provides the cross-SDK
-`__se_anon_id` cookie primitives (this SDK is framework-agnostic, so it ships
-helpers rather than a middleware). In a server handler, resolve the id off the
-request `Cookie` header, bind it to the `Client`, and echo it back on the
-response:
-
-```swift
-let resolved = AnonId.resolve(cookieHeader: req.headers["cookie"].first)
-let client = try Client(["anonymous_id": resolved.id])
-let on = await client.getFlag("new_checkout")
-if resolved.minted {
-    res.headers.add(name: "set-cookie", value: AnonId.setCookieHeader(resolved.id, secure: true))
+public protocol AnonymousStore {
+    func get(_ key: String) -> String?
+    func set(_ key: String, _ value: String)
 }
 ```
 
-The cookie is non-`HttpOnly` by design so the browser SDK buckets identically; a
-request with **no** unit still resolves a fully-rolled (100%) gate as on. Cookie
-name + format are a cross-SDK contract (see `18-identity-bucketing.md`).
-
-### Anonymous id in a mobile app (`AnonymousStore`)
-
-The cookie helpers above are for a **server** handler. A shipped app has no
-request cookie — `ShipeasyClient` (see [installation](installation.md#native-mobile-client--shipped-apps-shipeasyclient))
-instead **persists** the device's `__se_anon_id` so bucketing is stable across
-app launches. Without persistence a fresh UUID every cold start silently
-re-buckets every fractional rollout and experiment.
-
-By default the id lives in `UserDefaults` (`UserDefaultsAnonymousStore`). Supply
-your own `AnonymousStore` to back it with the Keychain (survives reinstalls), an
-app-group container (shared with extensions), or an in-memory map (tests):
+Supply your own to `configureClient(clientKey:store:)` to back the id with the
+**Keychain** (survives app reinstalls), an **app-group** container (shared with
+extensions / widgets), or an **in-memory** map (tests):
 
 ```swift
 struct KeychainAnonStore: AnonymousStore {
@@ -88,34 +45,38 @@ configureClient(clientKey: "pk_live_…", store: KeychainAnonStore())
 degrades gracefully and never crashes a read. The stable id is readable as
 `await shipeasyClient()?.anonymousId`.
 
+The client also transparently persists and echoes back its **sticky** experiment
+state through the same store, so a unit stays on its first-assigned variant across
+launches — there is nothing to configure for that.
+
+## Reading the stable device id — `anonymousId`
+
+`anonymousId` is the persisted device bucketing id. Read it to correlate your own
+analytics with Shipeasy bucketing, or to seed a support ticket:
+
+```swift
+let id = await shipeasyClient()?.anonymousId
+```
+
+## Re-evaluating — `refreshAssignments`
+
+`refreshAssignments()` re-evaluates for the **current** user (no identity change)
+over `/sdk/evaluate`, updating the local cache — e.g. to pick up a flag you just
+published:
+
+```swift
+await shipeasyClient()?.refreshAssignments()
+```
+
+For an identity change (login) use `identify(...)`; for logout use `reset()`. See
+[configuration](configuration.md).
+
 ## Manual exposure
 
-`logExposure` is on the bound `Client` — record an experiment exposure explicitly
-(rather than relying on `getExperiment` to log it). The unit is derived from the
-bound user; it's a no-op when the user has no unit or isn't enrolled:
+`logExposure` records an experiment exposure explicitly at the point you present
+the variant, rather than relying on `getExperiment` alone. It re-evaluates and only
+emits when the device user is enrolled — a no-op otherwise:
 
 ```swift
-let client = try Client(["user_id": "u_123"])
-await client.logExposure("checkout_button")
+await shipeasyClient()?.logExposure("checkout_button")
 ```
-
-## Change listeners
-
-Register a listener that fires after a fetch applies **new** data (HTTP 200, not
-304) using the package-level `onChange` helper. It requires
-`configure(..., poll: true)` — no poll runs otherwise. Listeners never fire in
-testing/offline mode. `onChange` returns an unsubscribe closure:
-
-```swift
-let unsubscribe = await onChange {
-    print("flag/experiment data refreshed")
-}
-// later…
-unsubscribe()
-```
-
-## SSR bootstrap
-
-See [i18n](i18n.md) for the package-level `bootstrapScriptTag` / `i18nScriptTag`
-helpers used to hydrate the browser SDK on first paint with the same evaluated
-flags the server saw.

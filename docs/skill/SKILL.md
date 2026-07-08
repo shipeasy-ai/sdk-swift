@@ -1,123 +1,116 @@
 ---
 name: shipeasy-swift
-description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Swift. Covers configure() + Client(user) on servers, ShipeasyClient for shipped iOS/macOS apps, getFlag/getConfig/getExperiment/getKillswitch, track, testing, see() error reporting. SwiftPM SDK (iOS 15+/macOS 12+).
+description: Use Shipeasy from a native iOS/macOS/tvOS/watchOS app in Swift — feature flags, dynamic configs, kill switches, A/B experiments, metric tracking, and see() error reporting. The native client SDK uses a public client key (pk_…, safe to embed), configureClient() once at launch returns a ShipeasyClient actor, identify() binds the device user and refreshes assignments, and getFlag/getConfig/getExperiment/getKillswitch serve cached reads. Persists the device anonymous_id across launches so bucketing is stable. SwiftPM (iOS 15+/macOS 12+/tvOS 15+/watchOS 8+).
 ---
 
-# Shipeasy Swift SDK
+# Shipeasy Swift SDK (native client)
 
-SwiftPM SDK (iOS 15+/macOS 12+). Two front doors: **`configure()` + `Client(user)`**
-is the server SDK (server key, evaluates rules locally — never embed a server key
-in a shipped app); **`configureClient()` + `ShipeasyClient`** is the native
-client for shipped apps (public client key, server-side eval, persisted device
-anon id). All evaluation methods are `async` (the engine is a Swift `actor`).
+SwiftPM SDK for **shipped iOS / macOS / tvOS / watchOS apps** (iOS 15+ / macOS 12+
+/ tvOS 15+ / watchOS 8+). It uses a **public client key** (`pk_…`, safe to embed),
+evaluates the device user server-side over `POST /sdk/evaluate`, and serves cheap
+local reads from the cached response. `ShipeasyClient` is a Swift `actor`, so its
+methods are `async`. There is **no server surface, no OpenFeature provider, and no
+i18n** in this SDK.
 
-## Native mobile app? ShipeasyClient (client key)
-
-```swift
-import Shipeasy
-
-// Once at app launch — PUBLIC client key (pk_…), safe to embed:
-configureClient(clientKey: "pk_live_…")
-
-// Bind the user ([:] for logged-out; again on login). Persists the device
-// anonymous_id across launches so bucketing is stable on every cold start.
-await shipeasyClient()?.identify(["user_id": "u_123", "plan": "pro"])
-
-// Reads serve the cached /sdk/evaluate assignments (no per-call network):
-let on  = await shipeasyClient()?.getFlag("new_checkout") ?? false
-let exp = await shipeasyClient()?.getExperiment("checkout_button", defaultParams: nil)
-await shipeasyClient()?.logExposure("checkout_button")
-await shipeasyClient()?.track("purchase", properties: ["amount": 49])
-await shipeasyClient()?.reset()   // logout: keep device anon id, drop user_id
-```
-
-Custom anon-id persistence (Keychain / app group / tests): pass an
-`AnonymousStore` to `configureClient(clientKey:store:)`. Reference:
-<https://shipeasy-ai.github.io/sdk-swift/pages/installation.md>
-
-The rest of this skill covers the **server** SDK (`configure()` + `Client`).
-
-> The documented surface is exactly **`configure()`** (setup) and the bound
-> **`Client(user)`** (use), plus the package-level helpers below. For deeper docs,
-> fetch any page/snippet from the manifest at
+> The documented surface is exactly **`configureClient(clientKey:)`** (once, at
+> launch) and the **`ShipeasyClient`** it returns, plus the package-level `see()`
+> family. For deeper docs, fetch any page/snippet from the manifest at
 > <https://shipeasy-ai.github.io/sdk-swift/manifest.json> (raw URLs below).
 
 ## Install
 
 ```swift
 // Package.swift
-.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "0.10.0"),
+.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "1.0.0"),
 ```
 
 ```swift
 import Shipeasy
 ```
 
-## Configure once, then a Client per user
+## Configure once at launch, then identify + read
 
 ```swift
-// Once at startup. Builds the global engine + kicks off a one-shot fetch.
-// Optionally map YOUR user object → the attribute map (runs in the Client ctor).
-configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!) { user in
-    let u = user as! AppUser
-    return ["user_id": u.id, "country": u.region]
-}
-// Long-running server: configure(apiKey: key, poll: true) keeps flags fresh with
-// a background poll — you never call initialize() yourself.
+import Shipeasy
 
-// Per request — methods take NO user arg (the user is bound). Throws
-// NotConfiguredError if configure() hasn't run.
-let client = try Client(["user_id": "u_123", "plan": "pro"]) // construct once per callsite
+// Once at app launch (SwiftUI App init / AppDelegate). PUBLIC client key (pk_…),
+// safe to embed. First-config-wins; returns + registers the process-global client.
+let client = configureClient(clientKey: "pk_live_…")
+
+// Bind the user ([:] for a logged-out visitor; again on login). Attaches the
+// persisted device anonymous_id automatically so bucketing is stable across
+// cold starts. Awaiting the first identify guarantees the first reads see assignments.
+await client.identify(["user_id": "u_123", "plan": "pro"])
+
+// Anywhere later, fetch the configured client with shipeasyClient():
+let on = await shipeasyClient()?.getFlag("new_checkout") ?? false
 ```
 
-## Evaluate
+Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/installation.md> ·
+<https://shipeasy-ai.github.io/sdk-swift/pages/configuration.md>
+
+## Evaluate (cached reads)
 
 ```swift
-let client = try Client(["user_id": "u_123"])                 // construct once per callsite
-let enabled = await client.getFlag("new_checkout")             // Bool
-let on      = await client.getFlag("new_checkout", default: true) // default only when unevaluable
-let detail  = await client.getFlagDetail("new_checkout")       // .value + .reason
-let cfg      = await client.getConfig("billing_copy", default: ["headline": "Hi"]) // Any?
-let killed  = await client.getKillswitch("panic_button")       // true = killed
+let client = shipeasyClient()!
+let enabled = await client.getFlag("new_checkout")                 // Bool
+let on      = await client.getFlag("new_checkout", default: true)  // default only when unevaluable
+let cfg     = await client.getConfig("billing_copy", default: ["headline": "Hi"]) // Any?
+let killed  = await client.getKillswitch("panic_button")           // true = killed
 // Named switch: getKillswitch(name, switchKey:) — an unconfigured key falls back
 // to the kill switch's top-level value.
 ```
 
-Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/configuration.md> ·
+Reads serve the cached `/sdk/evaluate` response (no per-call network, any thread).
+Before the first identify they return the supplied defaults. Reference:
 <https://shipeasy-ai.github.io/sdk-swift/pages/flags.md>
 
-## Experiments + track (Client-only, end to end)
+## Identity lifecycle
 
 ```swift
-let client = try Client(["user_id": "u_123"])                 // construct once per callsite
+await client.identify(["user_id": "u_123"])   // launch / login / attrs changed
+await client.reset()                          // logout: keep device anon id, drop user_id
+await client.refreshAssignments()             // re-evaluate current user (pick up a new flag)
+let id = await client.anonymousId             // stable, persisted device bucketing id
+```
+
+## Experiments + track
+
+```swift
+let client = shipeasyClient()!
 let r = await client.getExperiment("checkout_button", defaultParams: ["color": "blue"])
 // r.inExperiment: Bool, r.group: String, r.params: Any?
 
 await client.logExposure("checkout_button")                   // record where you present it
-await client.track("purchase", properties: ["amount": 49])    // conversion for the bound user
+await client.track("purchase", properties: ["amount": 49])    // conversion (fire-and-forget)
 ```
 
 Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/experiments.md> · track
 snippet <https://shipeasy-ai.github.io/sdk-swift/snippets/metrics/track.md>
 
-## Testing (no network, no key)
+## Testing (hermetic — no network, no UserDefaults)
+
+Build a `ShipeasyClient` directly with an in-memory `AnonymousStore` + a stub
+`Transport` returning a canned `/sdk/evaluate` body; `await identify`, then assert.
 
 ```swift
-// Seed values up front; reads go through the ordinary Client(user). Replaces
-// prior config, so each test can reconfigure freely.
-await configureForTesting(
-    flags: ["new_checkout": true],
-    configs: ["billing_copy": ["headline": "50% off"]],
-    experiments: ["checkout_button": (group: "treatment", params: ["color": "green"])]
-)
-let client = try Client(["user_id": "u_1"])
-_ = await client.getFlag("new_checkout", default: false)      // true
+final class MemStore: AnonymousStore, @unchecked Sendable {
+    private var map: [String: String] = [:]
+    func get(_ key: String) -> String? { map[key] }
+    func set(_ key: String, _ value: String) { map[key] = value }
+}
 
-await overrideFlag("new_checkout", false)                     // flip on the spot
-await clearOverrides()                                        // drop every override (incl. the seed)
+let transport: ShipeasyClient.Transport = { req in
+    let body: [String: Any] = ["flags": ["new_ui": true]]
+    let data = try JSONSerialization.data(withJSONObject: body)
+    return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+}
 
-// Offline: evaluate the REAL rules from a snapshot or JSON file, no network.
-try await configureForOffline(path: "shipeasy-snapshot.json")
+let client = ShipeasyClient(clientKey: "pk_test", store: MemStore(),
+                            disableTelemetry: true, transport: transport)
+await client.identify(["user_id": "u1"])
+_ = await client.getFlag("new_ui", default: false)   // true
+// resetClientConfig() drops the process-global client between tests (tests only).
 ```
 
 Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/testing.md>
@@ -128,26 +121,27 @@ Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/testing.md>
 do {
     try chargeCard(order)
 } catch {
-    see(error).causesThe("checkout").to("use the backup processor")
+    see(error).causesThe("checkout").to("use cached prices")
 }
 
-seeViolation("inventory_negative").extras(["sku": sku]).to("clamp to zero")
+seeViolation("large query").causesThe("search results").to("be trimmed")
 controlFlowException(error).because("expected — token expiry is normal") // reports nothing
 ```
 
-Package-level `see(_:)` / `seeViolation(_:)` use the configured engine. Reference:
-<https://shipeasy-ai.github.io/sdk-swift/pages/error-reporting.md> · snippet
-<https://shipeasy-ai.github.io/sdk-swift/snippets/ops/see.md>
+`to(_:)` is the terminal (nothing sends without it). Package-level `see(_:)` /
+`seeViolation(_:)` dispatch through the configured client (side `"client"`).
+Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/error-reporting.md> ·
+snippet <https://shipeasy-ai.github.io/sdk-swift/snippets/ops/see.md>
 
 ## Notes
 
-- **No OpenFeature provider** in Swift — use `getFlag` / `getFlagDetail`.
-  Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/openfeature.md>
-- **i18n**: the server SDK has no `t()`. It emits SSR tags via package-level
-  `bootstrapScriptTag(_:...)` / `i18nScriptTag(_:profile:)`; the browser client
-  SDK renders translations. Reference:
+- **No OpenFeature provider** in Swift — use `getFlag`. Reference:
+  <https://shipeasy-ai.github.io/sdk-swift/pages/openfeature.md>
+- **No i18n** in the native client — localize with the platform's own tooling
+  (String Catalogs / `Localizable.strings`). Reference:
   <https://shipeasy-ai.github.io/sdk-swift/pages/i18n.md>
-- Advanced: `privateAttributes`, `bucketBy`, sticky bucketing
-  (`StickyBucketStore`), `AnonId` helpers, package-level `onChange` (requires
-  `poll: true`), `logExposure`. Reference:
+- **Persisted anon id** is the point of the SDK: a custom `AnonymousStore` (Keychain
+  / app-group / tests) backs it via `configureClient(clientKey:store:)`; also
+  `privateAttributes` (stripped from `track`/`see`), `refreshAssignments`,
+  `anonymousId`. Reference:
   <https://shipeasy-ai.github.io/sdk-swift/pages/advanced.md>

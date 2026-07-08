@@ -1,109 +1,87 @@
 # Configuration
 
-`configure(...)` wires the API key, HTTP, the rules cache, and (optionally) the
-background poll. Call it **once** at startup. It is idempotent — the first call
-wins; later calls are a no-op. See [installation](installation.md) for the full
-options table and per-framework wiring; this page covers the `attributes`
-transform and the one-shot-vs-poll choice.
+`configureClient(...)` wires the client key, HTTP, and the anon-id store. Call it
+**once** at app launch. It returns the `ShipeasyClient` and registers it as the
+process-global one, fetchable with `shipeasyClient()`. It is **first-config-wins**
+(idempotent) — the first call configures; later calls return the same client and
+change nothing. See [installation](installation.md) for where to place the call.
 
 ```swift
 import Shipeasy
 
-configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
+let client = configureClient(clientKey: "pk_live_…")
 ```
 
-The configure params, briefly:
+On first config it fire-and-forgets an anonymous `identify([:])`, so `getFlag`
+resolves for logged-out users without an explicit `identify`.
 
-| Param               | Purpose |
-| ------------------- | ------- |
-| `apiKey`            | Your **server** key. Required. |
-| `attributes`        | A transform mapping *your* user object → the Shipeasy attribute map. Default is identity. See below. |
-| `baseURL`           | The edge endpoint. Defaults to `https://api.shipeasy.ai`. |
-| `env`               | Deployment env tag (`"prod"` by default); stamped onto `see()` error events. |
-| `disableTelemetry`  | Suppress outbound telemetry (`track` / exposures / `see()`). |
-| `telemetryURL`      | Where telemetry POSTs go. |
-| `privateAttributes` | Attribute names usable for targeting but stripped from outbound `track()` payloads. See [advanced](advanced.md). |
-| `stickyStore`       | Optional `StickyBucketStore` to lock units to their first-assigned experiment variant. See [advanced](advanced.md). |
-| `logLevel`          | Verbosity of the SDK's own diagnostics: `.silent`, `.error`, `.warn` (default), `.info`, `.debug`. See below. |
-| `disableInternalErrorReporting` | Opt out of SDK self-monitoring (reporting the SDK's *own* internal errors to Shipeasy). Default `false` (on). See below. |
-| `init`              | When `true` (default), kick off a one-shot fetch fire-and-forget so the first evaluation resolves against real rules. |
-| `poll`              | When `true`, run the initial fetch **and** a periodic background refresh (long-running servers). |
+## `configureClient()` options
 
-## The `attributes` transform
+| Param               | Default | Purpose |
+| ------------------- | ------- | ------- |
+| `clientKey`         | —       | Your **public client** key (`pk_…`). Safe to embed in a shipped app. Required. |
+| `baseURL`           | `https://api.shipeasy.ai` | The edge endpoint that evaluates and returns assignments. |
+| `env`               | `"prod"` | Deployment env; selects which environment's rules the edge evaluates, and is stamped onto `see()` error events. |
+| `store`             | `UserDefaultsAnonymousStore()` | Where the persistent `anonymous_id` lives. Supply your own `AnonymousStore` for the Keychain / app-group / tests — see [advanced](advanced.md#anonymous-id-persistence-anonymousstore). |
+| `disableTelemetry`  | `false` | Suppress outbound telemetry (`track` / exposures / `see()`). |
+| `telemetryURL`      | `https://t.shipeasy.ai` | Where telemetry POSTs go. |
+| `privateAttributes` | `[]`    | Attribute names usable for targeting but stripped from outbound `track()` / `see()` payloads. See [advanced](advanced.md#private-attributes). |
+| `session`           | shared `URLSession` | Optional `URLSession` for the HTTP calls. |
+| `transport`         | `URLSession`-backed | Optional low-level request transport. Injecting a stub is how tests run hermetically — see [testing](testing.md). |
 
-`attributes` maps your user object (any shape) to the Shipeasy attribute map
-(`["user_id": ..., "anonymous_id": ..., <targeting attrs>]`). It runs **once**,
-in the `Client` constructor. The default is identity — the user value is assumed
-to already BE the attribute map.
+## The configured client — `shipeasyClient()`
+
+`configureClient(...)` returns the client **and** stores it globally. Anywhere in
+the app, fetch it with `shipeasyClient()` (returns `ShipeasyClient?`, or `nil`
+before configuration):
 
 ```swift
-struct AppUser { let id: String; let region: String }
-
-configure(apiKey: serverKey) { user in
-    let u = user as! AppUser
-    return ["user_id": u.id, "country": u.region]
-}
-
-let on = await (try Client(AppUser(id: "u_123", region: "US"))).getFlag("us_only")
+let flag = await shipeasyClient()?.getFlag("new_checkout") ?? false
 ```
 
-## One-shot fetch vs. the background poll
+## Binding the user — `identify`
 
-The default (`init: true`) kicks off a single fire-and-forget fetch so the first
-`Client` evaluation resolves against real rules. For a **long-running server**
-that wants the background poll (periodic refresh) instead, pass `poll: true`:
+`identify(_:)` binds the device user and refreshes assignments over
+`POST /sdk/evaluate`. Pass your targeting attribute map; the persisted
+`anonymous_id` is always attached automatically:
 
 ```swift
-configure(apiKey: serverKey, poll: true) // initial fetch + periodic background refresh
+await shipeasyClient()?.identify(["user_id": "u_123", "plan": "pro"])
 ```
 
-The poll lifecycle is owned internally — you never start, stop, or touch it
-yourself. To react to a poll bringing new data, register an `onChange` listener
-(see [advanced](advanced.md)). Everything after configuration — flags, configs,
-experiments, `track`, `logExposure` — happens through the bound `Client`.
+Call `identify`:
 
-## Fail-safe reads & the `logLevel` option
+- **at launch** (or `[:]` for a logged-out visitor — the anonymous `identify` on
+  first config already covers this if you don't need attributes),
+- **on login**, with `user_id` and any targeting attributes,
+- **whenever targeting attributes change** (plan upgrade, opted-in setting, etc.).
 
-Every runtime read on the bound `Client` — `getFlag` / `getFlagDetail` /
-`getConfig` / `getKillswitch` / `getExperiment`, plus `track` / `logExposure` and
-the `see()` chain — is **fail-safe**: it is `async` and non-throwing, and on any
-problem (client not ready, key missing, a malformed rules blob) it returns a safe
-default rather than throwing or crashing. Your feature code never needs a
-`try`/`catch` around a read.
+Awaiting `identify` guarantees the first reads see the fresh assignments. A failed
+evaluate is non-fatal — reads simply fall back to the supplied defaults.
 
-Diagnostics for those swallowed problems go through a single leveled logger,
-tuned with `logLevel` (default `.warn`). Levels are ordered
-`silent < error < warn < info < debug`; a message is emitted only when the
-configured level is verbose enough to include it. Set `.silent` to mute the SDK's
-stderr output entirely, or `.debug` to surface fire-and-forget dispatch failures:
+### Logout — `reset`
+
+`reset()` clears the bound `user_id` but **keeps** the device `anonymous_id`, then
+re-evaluates as an anonymous visitor:
 
 ```swift
-configure(apiKey: serverKey, logLevel: .silent) // no SDK log output
+await shipeasyClient()?.reset()
 ```
 
-Setup calls are unaffected — `try Client(user)` before `configure(...)` still
-throws `NotConfiguredError`, and `configureForOffline` still throws on a bad
-source. Only the per-request reads are guaranteed non-throwing.
+### Re-evaluate — `refreshAssignments`
 
-### SDK self-monitoring
-
-When one of those last-resort guards swallows an **SDK-internal** failure — a bug
-on Shipeasy's side, not yours — the SDK also fire-and-forgets a report to
-Shipeasy's **own** project. This is a dedicated, baked-in destination, entirely
-separate from your own [`see()`](error-reporting.md) reporting: internal SDK
-errors never land in your project or Errors tab. The report is deduped and
-rate-limited, and can never slow down or break a read. It's on by default; opt
-out with `disableInternalErrorReporting`:
+`refreshAssignments()` re-evaluates for the current user without changing identity
+— e.g. to pick up a just-published flag:
 
 ```swift
-configure(apiKey: serverKey, disableInternalErrorReporting: true)
+await shipeasyClient()?.refreshAssignments()
 ```
 
-## Environment variables
+## The persisted `anonymous_id`
 
-There are no auto-read env vars — pass the key explicitly. Conventionally it
-lives in `SHIPEASY_SERVER_KEY`:
-
-```swift
-configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"] ?? "")
-```
+The stable device id is exposed as `await shipeasyClient()?.anonymousId`. It is
+minted once and **persisted** via the `store` so it survives cold starts. This is
+what keeps a logged-out visitor in the same bucket for every fractional rollout
+and experiment on every launch. See
+[advanced](advanced.md#anonymous-id-persistence-anonymousstore) to back it with
+the Keychain or an app-group container.

@@ -15,9 +15,10 @@ import Foundation
 // Dispatch model (differs from the TS microtask): `to(_:)` is the terminal — it
 // builds the wire event and fire-and-forgets the POST to `/collect`.
 // `causesThe(_:)` and `extras(_:)` are chainable setters that may be called in
-// any order *before* `to(_:)`. `Engine` is an `actor`, so the chain is a plain
-// (non-isolated) `final class` that captures the engine and accumulates state
-// synchronously; `to(_:)` hops onto the actor via a detached `Task` to dispatch.
+// any order *before* `to(_:)`. `ShipeasyClient` is an `actor`, so the chain is a
+// plain (non-isolated) `final class` that captures the client and accumulates
+// state synchronously; `to(_:)` hops onto the actor via a detached `Task` to
+// dispatch.
 
 // MARK: Limits (mirror core.ts; kept in sync with the worker's /collect)
 
@@ -32,7 +33,7 @@ let SEE_MAX_PER_PROCESS = 25
 /// SDK version, single source for the `sdk_version` wire field. Bumped in lockstep
 /// with the `VERSION` file (SwiftPM publishes by git tag, so no compile-time read
 /// of `VERSION` exists — this constant IS the source the event reports).
-public let SDK_VERSION = "0.14.0"
+public let SDK_VERSION = "1.0.0"
 
 private let SEE_DEFAULT_SUBJECT = "app"
 private let SEE_DEFAULT_OUTCOME = "hit an error"
@@ -226,13 +227,13 @@ struct SeeBuilt: @unchecked Sendable {
 /// usage reads `client.see(e).causesThe("checkout").to("use cached prices")`.
 public final class SeeChain {
     private let problem: SeeProblem
-    private weak var client: Engine?
+    private weak var client: ShipeasyClient?
     private var subject: String?
     private var outcome: String?
     private var extras: [String: Any]?
     private var done = false
 
-    init(problem: SeeProblem, client: Engine?) {
+    init(problem: SeeProblem, client: ShipeasyClient?) {
         self.problem = problem
         self.client = client
     }
@@ -305,28 +306,28 @@ public final class ControlFlowTail {
 
 // MARK: Global default client + package-level functions
 
-/// Thread-safe holder for the default `Engine` backing the package-level
-/// `see(...)` functions. Last-constructed engine wins (registered in `Engine.init`,
-/// or via `configure(...)`).
+/// Thread-safe holder for the default ``ShipeasyClient`` backing the
+/// package-level `see(...)` functions. Last-configured client wins (registered
+/// when a ``ShipeasyClient`` is constructed, i.e. via ``configureClient(clientKey:)``).
 final class DefaultClientBox: @unchecked Sendable {
     static let shared = DefaultClientBox()
     private let lock = NSLock()
-    private weak var client: Engine?
+    private weak var client: ShipeasyClient?
 
-    func set(_ c: Engine?) {
+    func set(_ c: ShipeasyClient?) {
         lock.lock(); defer { lock.unlock() }
         client = c
     }
 
-    func get() -> Engine? {
+    func get() -> ShipeasyClient? {
         lock.lock(); defer { lock.unlock() }
         return client
     }
 }
 
-/// Register the engine backing the package-level `see()` functions. Called
-/// automatically when an `Engine` is constructed (last wins).
-public func setDefaultClient(_ client: Engine?) {
+/// Register the client backing the package-level `see()` functions. Called
+/// automatically when a ``ShipeasyClient`` is constructed (last wins).
+public func setDefaultClient(_ client: ShipeasyClient?) {
     DefaultClientBox.shared.set(client)
 }
 
@@ -355,9 +356,9 @@ public func controlFlowException(_ err: Error) -> ControlFlowChain {
     ControlFlowChain(err)
 }
 
-// MARK: Engine integration
+// MARK: ShipeasyClient integration
 
-public extension Engine {
+public extension ShipeasyClient {
     /// Report a caught error. Fire-and-forget; never blocks or throws into the
     /// caller. `nonisolated` so the chain reads synchronously — terminate with
     /// `.to(outcome)`:

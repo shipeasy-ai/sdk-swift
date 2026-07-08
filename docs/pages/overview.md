@@ -1,61 +1,64 @@
 # Overview
 
-`Shipeasy` is the **server-side** Swift SDK for [Shipeasy](https://shipeasy.dev) —
-feature flags, dynamic configs, kill switches, and A/B experiments. SwiftPM,
-iOS 15+ / macOS 12+. It is server-key only; never embed the server key in an iOS
-app bundle.
+`Shipeasy` is the **native client** Swift SDK for [Shipeasy](https://shipeasy.ai) —
+feature flags, dynamic configs, kill switches, and A/B experiments for an
+iOS / macOS / tvOS / watchOS app. It uses a **public client key** (`pk_…`, safe
+to embed in a shipped app), evaluates one device user server-side over
+`POST /sdk/evaluate`, and serves cheap local reads from the cached response.
 
-## Mental model: `configure()` once, then a `Client` per user
+## Mental model: `configureClient()` once, then `identify` + read
 
-You `configure(apiKey:)` **once** at startup, then construct a cheap,
-**user-bound** `Client` per request. The bound `Client`'s methods take **no user
-argument** — the user is bound at construction:
+You call `configureClient(clientKey:)` **once** at app launch. It returns a
+`ShipeasyClient` and registers it as the process-global one (fetch it later with
+`shipeasyClient()`). Then you `identify(...)` the device user (which evaluates and
+caches assignments) and read flags/configs/experiments from the cache:
 
 ```swift
 import Shipeasy
 
-configure(apiKey: ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]!)
+// Once, at app launch — PUBLIC client key (pk_…), safe to embed:
+let client = configureClient(clientKey: "pk_live_…")
 
-let client = try Client(["user_id": "u_123", "plan": "pro"])
+// Bind the user (pass [:] for a logged-out visitor). Awaiting the first identify
+// guarantees the first reads see assignments:
+await client.identify(["user_id": "u_123", "plan": "pro"])
+
+// Reads serve the cached /sdk/evaluate response (no per-call network):
 let enabled = await client.getFlag("new_checkout")
 ```
 
-Every evaluation method on the bound `Client` is `async` (the SDK is backed by a
-Swift `actor`). Constructing a `Client` before `configure(...)` throws
-`NotConfiguredError`.
+`ShipeasyClient` is a Swift `actor`, so its methods are `async` — you `await`
+them. Reads are served from a **local cache** of the last `/sdk/evaluate`
+response, so they never hit the network and are safe from any thread. Before the
+first `identify`, reads return the supplied defaults.
 
-## The two things you use
+The **persisted device `anonymous_id`** is the whole point of the client SDK: it
+survives cold starts so a logged-out visitor buckets identically into every
+fractional rollout and experiment on every launch. See
+[configuration](configuration.md) and [advanced](advanced.md#anonymous-id-persistence-anonymousstore).
 
-| Function / type       | Role |
-| --------------------- | ---- |
-| `configure(...)`      | Called **once** at startup. Wires the API key, HTTP, the rules cache, and (optionally) the background poll. Siblings `configureForTesting(...)` and `configureForOffline(...)` wire the same surface with no network. See [installation](installation.md). |
-| `try Client(_ user:)` | A cheap, **user-bound** value. Runs the configured `attributes` transform once at construction and binds the result. Build one per user/request. Exposes `getFlag`, `getFlagDetail`, `getConfig`, `getExperiment`, `getKillswitch`, plus `track(_:properties:)` and `logExposure(_:)` (the unit is derived from the bound user), so experiments are end-to-end Client-only. |
+## The things you use
 
-Everything application code needs lives on the bound `Client` — including
-recording conversions via `client.track(...)` and exposures via
-`client.logExposure(...)`. The package-level helpers (`overrideFlag`,
-`clearOverrides`, `onChange`, `bootstrapScriptTag`, `i18nScriptTag`) cover the
-remaining cross-cutting needs.
-
-## Shipping in a mobile app? Use `ShipeasyClient`
-
-`configure()` / `Client(user)` is the **server** SDK — it holds a server key and
-evaluates rules locally. **Never embed a server key in a shipped app.** For an
-iOS / macOS / tvOS / watchOS app, use `configureClient(clientKey:)` +
-`ShipeasyClient`: a **public client key**, server-side evaluation over
-`POST /sdk/evaluate`, and a **persisted device `anonymous_id`** so logged-out
-users bucket identically across launches. See [installation](installation.md#native-mobile-client--shipped-apps-shipeasyclient).
+| Function / type            | Role |
+| -------------------------- | ---- |
+| `configureClient(...)`     | Called **once** at app launch. Wires the client key, HTTP, and the anon-id store; returns the `ShipeasyClient` and registers it globally. First-config-wins (idempotent). See [configuration](configuration.md). |
+| `shipeasyClient()`         | Fetch the configured client (`ShipeasyClient?`), or `nil` if `configureClient` hasn't run. |
+| `client.identify(_:)`      | Bind the device user + refresh assignments over `/sdk/evaluate`. Call at launch, on login, and whenever targeting attributes change. |
+| `client.reset()`           | Logout: clear `user_id`, keep the device `anonymous_id`, re-evaluate as anonymous. |
+| `client.getFlag/getConfig/getExperiment/getKillswitch` | Cached reads for the current user. |
+| `client.track(_:properties:)` / `client.logExposure(_:)` | Conversion + exposure telemetry (fire-and-forget). |
+| `see(_:)` family           | Structured error reporting. See [error-reporting](error-reporting.md). |
 
 ## Pages
 
-- [installation](installation.md) — SwiftPM dependency, runtime, import, and the canonical `configure()` reference.
-- [configuration](configuration.md) — `configure(...)`, the `attributes` transform, one-shot fetch vs. background poll.
-- [flags](flags.md) — `getFlag`, defaults, `getFlagDetail`.
-- [configs](configs.md) — `getConfig`, defaults.
+- [installation](installation.md) — SwiftPM dependency, platforms, where to call `configureClient`, and custom anon-id stores.
+- [configuration](configuration.md) — `configureClient(...)`, every option, the persisted anon-id, `shipeasyClient()`.
+- [flags](flags.md) — `getFlag`, defaults.
+- [configs](configs.md) — `getConfig`, defaults, typed reads.
 - [killswitches](killswitches.md) — `getKillswitch` + named override switches.
 - [experiments](experiments.md) — `getExperiment`, `ExperimentResult`, `track`, `logExposure`.
-- [i18n](i18n.md) — SSR loader/bootstrap tags (translation rendering is client-side).
+- [i18n](i18n.md) — not part of the native client SDK.
 - [error-reporting](error-reporting.md) — `see()` structured error reporting.
-- [testing](testing.md) — `configureForTesting`, `configureForOffline`, the override helpers.
+- [testing](testing.md) — hermetic tests with an in-memory store + a stub transport.
 - [openfeature](openfeature.md) — provider status (not shipped).
-- [advanced](advanced.md) — private attributes, `bucketBy`, sticky bucketing, anonymous IDs, change listeners.
+- [advanced](advanced.md) — private attributes, custom `AnonymousStore`, `anonymousId`, `refreshAssignments`.

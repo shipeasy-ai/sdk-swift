@@ -1,8 +1,9 @@
-Enrol a user into `{{EXPERIMENT_KEY}}`, branch on the group, and track the conversion event. Assumes `configure()` ran at startup — see Installation.
+Read the assignment for `{{EXPERIMENT_KEY}}`, branch on the group, and track the
+conversion event — all from the configured `ShipeasyClient`. Assumes
+`configureClient(...)` ran at startup — see Installation.
 
 ```swift
-// construct once per callsite (cheap; binds the user)
-let client = try Client(["user_id": "u_123"])
+let client = shipeasyClient()!   // configured once at app launch
 
 // name; defaultParams: params returned when the user isn't enrolled (nil for none)
 let r = await client.getExperiment("{{EXPERIMENT_KEY}}", defaultParams: ["color": "blue"])
@@ -13,7 +14,10 @@ if r.inExperiment, r.group == "treatment" {
     // render the treatment variant
 }
 
-// Client-only conversion event — the unit is the bound user (no id argument);
+// record the exposure at the point you present the variant (no-op when not enrolled)
+await client.logExposure("{{EXPERIMENT_KEY}}")
+
+// conversion event — the unit is the identified user (no id argument);
 // event name; optional `properties:` bag (default [:])
 await client.track("{{SUCCESS_EVENT}}", properties: ["amount": 49])
 ```

@@ -1,6 +1,43 @@
 # Changelog
 
-## 0.14.0 — 2026-07-08
+## 1.0.0 — 2026-07-08
+
+### Changed (BREAKING) — client-only pivot
+
+The Swift SDK is now a **native client SDK for shipped Apple apps**
+(iOS / macOS / tvOS / watchOS) and nothing else. `ShipeasyClient` (public client
+key, server-side evaluation over `POST /sdk/evaluate`, cached reads, persisted
+device `anonymous_id`) is the entire surface:
+
+```swift
+configureClient(clientKey: "pk_live_…")            // once, at app launch
+await shipeasyClient()?.identify(["user_id": "u_123"])
+let on = await shipeasyClient()?.getFlag("new_checkout") ?? false
+```
+
+`identify(_:)` / `reset()` / `refreshAssignments()`, the reads `getFlag` /
+`getConfig` / `getExperiment` / `getKillswitch`, `track(_:properties:)` /
+`logExposure(_:)`, and the `see()` error-reporting family are all dispatched by
+`ShipeasyClient` (telemetry + reports tagged `client`).
+
+### Removed (BREAKING)
+
+The entire **server** surface is gone — use a server SDK (TS / Python / Go / …)
+on the backend instead:
+
+- `configure(apiKey:)` + `Client(user)` and the `Engine` actor (local rule
+  evaluation over the server-key `GET /sdk/flags` · `/sdk/experiments` blobs).
+- `getFlagDetail` / `FlagDetail` / `FlagReason`.
+- `configureForTesting` / `configureForOffline` and the `overrideFlag` /
+  `overrideConfig` / `overrideExperiment` / `clearOverrides` helpers — hermetic
+  tests now inject an in-memory `AnonymousStore` + a stub `ShipeasyClient.Transport`.
+- SSR: `bootstrapScriptTag` / `i18nScriptTag` and the `window.__SE_BOOTSTRAP`
+  bootstrap.
+- Public sticky-bucketing config (`StickyBucketStore` / `InMemoryStickyStore`),
+  server `onChange`, and the servlet-style anon-id/cookie helpers. The client
+  persists + echoes sticky state transparently.
+
+## 0.14.0 — 2026-07-08 (unreleased)
 
 ### Added
 

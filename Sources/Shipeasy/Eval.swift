@@ -1,180 +1,24 @@
 import Foundation
 
+/// The result of an experiment assignment for the bound device user. Returned by
+/// ``ShipeasyClient/getExperiment(_:defaultParams:)`` — the edge evaluates the
+/// experiment server-side over `POST /sdk/evaluate` and the client caches this
+/// projection.
 public struct ExperimentResult: Sendable {
     public let inExperiment: Bool
     public let group: String
     public let params: Any?
 }
 
+// The client evaluates nothing locally (the edge owns evaluation over
+// `/sdk/evaluate`); it only needs to coerce the loosely-typed values the edge
+// returns for flags and kill switches into a `Bool`.
 enum Eval {
-    static let notIn = ExperimentResult(inExperiment: false, group: "control", params: nil)
-
+    /// Coerce an edge-returned value (`Bool`, or `1`/`1.0`) into a Bool.
     static func enabled(_ v: Any?) -> Bool {
         if let b = v as? Bool { return b }
         if let i = v as? Int { return i == 1 }
         if let d = v as? Double { return d == 1 }
         return false
-    }
-
-    static func toNum(_ v: Any?) -> Double? {
-        if let d = v as? Double { return d }
-        if let i = v as? Int { return Double(i) }
-        if let s = v as? String { return Double(s) }
-        return nil
-    }
-
-    static func userId(_ user: [String: Any]) -> String? {
-        if let v = user["user_id"] { return "\(v)" }
-        if let v = user["anonymous_id"] { return "\(v)" }
-        return nil
-    }
-
-    /// Pick the bucketing unit for an experiment, matching the canonical
-    /// `pickIdentifier` (packages/core/src/eval/gate.ts). When `bucketBy` names
-    /// an attribute, hash on it (e.g. `company_id` to keep a whole org on one
-    /// variant): a non-empty string is used as-is, a number is stringified.
-    /// Otherwise (no bucketBy, or the attribute is absent/empty) fall back to
-    /// `user_id ?? anonymous_id`.
-    static func pickIdentifier(_ user: [String: Any], _ bucketBy: String?) -> String? {
-        if let bucketBy = bucketBy, let v = user[bucketBy] {
-            if let s = v as? String, !s.isEmpty { return s }
-            if let n = v as? Int { return String(n) }
-            if let n = v as? Double {
-                // Match JS `String(number)`: integral values render without a
-                // trailing ".0" (e.g. 42, not 42.0).
-                if n == n.rounded() && abs(n) < 1e15 { return String(Int(n)) }
-                return String(n)
-            }
-            if let n = v as? NSNumber { return n.stringValue }
-        }
-        return userId(user)
-    }
-
-    static func matchRule(_ rule: [String: Any], _ user: [String: Any]) -> Bool {
-        guard let attr = rule["attr"] as? String, let op = rule["op"] as? String else { return false }
-        let value = rule["value"]
-        let actual = user[attr]
-
-        switch op {
-        case "eq": return equal(actual, value)
-        case "neq": return !equal(actual, value)
-        case "in":
-            guard let arr = value as? [Any] else { return false }
-            return arr.contains { equal($0, actual) }
-        case "not_in":
-            guard let arr = value as? [Any] else { return true }
-            return !arr.contains { equal($0, actual) }
-        case "contains":
-            if let a = actual as? String, let v = value as? String { return a.contains(v) }
-            if let arr = actual as? [Any] { return arr.contains { equal($0, value) } }
-            return false
-        case "regex":
-            guard let a = actual as? String, let v = value as? String,
-                  let re = try? NSRegularExpression(pattern: v) else { return false }
-            return re.firstMatch(in: a, range: NSRange(a.startIndex..., in: a)) != nil
-        case "gt", "gte", "lt", "lte":
-            guard let a = toNum(actual), let b = toNum(value) else { return false }
-            switch op { case "gt": return a > b; case "gte": return a >= b; case "lt": return a < b; default: return a <= b }
-        default: return false
-        }
-    }
-
-    private static func equal(_ a: Any?, _ b: Any?) -> Bool {
-        if a == nil && b == nil { return true }
-        if let a = a as? String, let b = b as? String { return a == b }
-        if let a = toNum(a), let b = toNum(b) { return a == b }
-        if let a = a as? Bool, let b = b as? Bool { return a == b }
-        return false
-    }
-
-    static func evalGate(_ gate: [String: Any]?, _ user: [String: Any]) -> Bool {
-        guard let gate = gate else { return false }
-        if enabled(gate["killswitch"]) { return false }
-        if !enabled(gate["enabled"]) { return false }
-        for r in (gate["rules"] as? [[String: Any]] ?? []) {
-            if !matchRule(r, user) { return false }
-        }
-        let rolloutPct = (gate["rolloutPct"] as? Int) ?? Int((gate["rolloutPct"] as? Double) ?? 0)
-        guard let uid = userId(user) else {
-            // No unit id (an unidentified request before any anon id is minted):
-            // a fully-rolled gate is on for everyone, so it can be answered
-            // without bucketing; a fractional rollout needs a stable unit, so
-            // deny until one exists. Rules above still apply, so targeting wins.
-            // See experiment-platform/18-identity-bucketing.md.
-            return rolloutPct >= 10000
-        }
-        let salt = (gate["salt"] as? String) ?? ""
-        return Murmur3.bucket("\(salt):\(uid)", mod: 10000) < UInt32(rolloutPct)
-    }
-
-    static func evalExperiment(
-        _ exp: [String: Any]?,
-        _ flags: [String: Any]?,
-        _ exps: [String: Any]?,
-        _ user: [String: Any],
-        name: String? = nil,
-        stickyStore: StickyBucketStore? = nil
-    ) -> ExperimentResult {
-        guard let exp = exp, exp["status"] as? String == "running" else { return notIn }
-
-        if let tg = exp["targetingGate"] as? String, !tg.isEmpty {
-            let gates = flags?["gates"] as? [String: Any]
-            let gate = gates?[tg] as? [String: Any]
-            if !evalGate(gate, user) { return notIn }
-        }
-
-        // Bucket on exp.bucketBy (e.g. company_id) when set, else
-        // user_id/anonymous_id. Holdout, allocation, and group all hash on the
-        // SAME unit so a whole org moves together. No resolvable unit ⇒ not
-        // enrolled (experiment-platform doc 20 §4 fallback).
-        let bucketBy = exp["bucketBy"] as? String
-        guard let uid = pickIdentifier(user, bucketBy) else { return notIn }
-
-        if let universeName = exp["universe"] as? String {
-            let universes = exps?["universes"] as? [String: Any]
-            let universe = universes?[universeName] as? [String: Any]
-            if let holdout = universe?["holdout_range"] as? [Int], holdout.count == 2 {
-                let seg = Murmur3.bucket("\(universeName):\(uid)", mod: 10000)
-                if seg >= UInt32(holdout[0]) && seg <= UInt32(holdout[1]) { return notIn }
-            }
-        }
-
-        let salt = (exp["salt"] as? String) ?? ""
-        let salt8 = String(salt.prefix(8))
-        let groups = (exp["groups"] as? [[String: Any]]) ?? []
-
-        // Sticky short-circuit (doc 20 §2): after holdout, before allocation. An
-        // enrolled unit whose stored salt prefix still matches skips the
-        // allocation gate (so a shrinking allocation keeps it in) and returns the
-        // stored group WITHOUT re-running the pick. A salt-prefix mismatch (the
-        // experiment salt rotated) or a vanished group falls through to a fresh
-        // re-bucket, which overwrites the stale entry below.
-        if let store = stickyStore, let expName = name {
-            if let entry = store.get(uid)?[expName], entry.salt8 == salt8 {
-                if let g = groups.first(where: { ($0["name"] as? String) == entry.group }) {
-                    return ExperimentResult(inExperiment: true, group: entry.group, params: g["params"])
-                }
-                // Stored group no longer exists — fall through to re-bucket.
-            }
-        }
-
-        let allocPct = (exp["allocationPct"] as? Int) ?? Int((exp["allocationPct"] as? Double) ?? 0)
-        if Murmur3.bucket("\(salt):alloc:\(uid)", mod: 10000) >= UInt32(allocPct) { return notIn }
-
-        let groupHash = Murmur3.bucket("\(salt):group:\(uid)", mod: 10000)
-        var cumulative: UInt32 = 0
-        for (i, g) in groups.enumerated() {
-            cumulative += UInt32((g["weight"] as? Int) ?? 0)
-            if groupHash < cumulative || i == groups.count - 1 {
-                let groupName = (g["name"] as? String) ?? "control"
-                // On a fresh pick, persist the assignment so the next eval is
-                // sticky to this group until the salt rotates.
-                if let store = stickyStore, let expName = name {
-                    store.set(uid, expName, StickyEntry(group: groupName, salt8: salt8))
-                }
-                return ExperimentResult(inExperiment: true, group: groupName, params: g["params"])
-            }
-        }
-        return notIn
     }
 }

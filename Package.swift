@@ -5,6 +5,9 @@ let package = Package(
     name: "Shipeasy",
     platforms: [.macOS(.v12), .iOS(.v15), .tvOS(.v15), .watchOS(.v8)],
     products: [
+        // Native client SDK for shipped Apple apps (iOS / macOS / tvOS / watchOS).
+        // Public client key, server-side evaluation over POST /sdk/evaluate,
+        // persisted device anonymous_id. See ClientMode.swift.
         .library(name: "Shipeasy", targets: ["Shipeasy"]),
         // Generated OpenAPI admin client (the Shipeasy admin API — flags/experiments/
         // configs/metrics/errors/ops CRUD + reads). URLSession-based, its own module
@@ -36,8 +39,7 @@ let package = Package(
         .executableTarget(name: "gen-readme"),
         .testTarget(
             name: "ShipeasyTests",
-            dependencies: ["Shipeasy"],
-            resources: [.copy("Fixtures/eval-vectors.json")]
+            dependencies: ["Shipeasy"]
         ),
     ]
 )

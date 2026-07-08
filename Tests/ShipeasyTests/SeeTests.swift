@@ -1,6 +1,10 @@
 import XCTest
 @testable import Shipeasy
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 final class SeeTests: XCTestCase {
     /// Thread-safe recorder for captured see() events via the actor's seeSink.
     final class Sink: @unchecked Sendable {
@@ -14,19 +18,33 @@ final class SeeTests: XCTestCase {
         let description: String
     }
 
-    /// Build a real (network-mode) client with a sink installed, run `body`, then
-    /// drain the actor so any `to(_:)`-dispatched Task has flushed into the sink.
-    /// `to(_:)` hops onto the actor via a detached Task; awaiting a no-op actor
-    /// call after `body` serializes behind those Tasks because the actor runs its
-    /// mailbox in order. We additionally sleep briefly for cross-thread settle.
+    /// A no-op transport so a real `ShipeasyClient` never touches the network.
+    private static let noopTransport: ShipeasyClient.Transport = { req in
+        (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+
+    private func makeClient(privateAttributes: [String] = []) -> ShipeasyClient {
+        ShipeasyClient(
+            clientKey: "pk_key",
+            baseURL: URL(string: "https://e.x")!,
+            disableTelemetry: true,
+            privateAttributes: privateAttributes,
+            transport: Self.noopTransport
+        )
+    }
+
+    /// Build a client with a sink installed, run `body`, then drain the actor so
+    /// any `to(_:)`-dispatched Task has flushed into the sink. `to(_:)` hops onto
+    /// the actor via a detached Task; polling the sink after `body` serializes
+    /// behind those Tasks because the actor runs its mailbox in order. We
+    /// additionally sleep briefly for cross-thread settle.
     private func withClient(
         privateAttributes: [String] = [],
         expectEvents: Int,
-        _ body: (Engine) -> Void
+        _ body: (ShipeasyClient) -> Void
     ) async -> [[String: Any]] {
         let sink = Sink()
-        let c = Engine(apiKey: "srv_key", baseURL: URL(string: "https://e.x")!,
-                       privateAttributes: privateAttributes)
+        let c = makeClient(privateAttributes: privateAttributes)
         await c.setSeeSink { sink.add($0) }
         body(c)
         // Poll the sink until it reaches the expected count (or a timeout). For
@@ -51,7 +69,7 @@ final class SeeTests: XCTestCase {
         XCTAssertEqual(ev["message"] as? String, "boom")
         XCTAssertEqual(ev["subject"] as? String, "checkout")
         XCTAssertEqual(ev["outcome"] as? String, "use cached prices")
-        XCTAssertEqual(ev["side"] as? String, "server")
+        XCTAssertEqual(ev["side"] as? String, "client")
         XCTAssertEqual(ev["sdk_version"] as? String, SDK_VERSION)
         XCTAssertEqual(ev["env"] as? String, "prod")
         XCTAssertNotNil(ev["stack"])
@@ -119,19 +137,9 @@ final class SeeTests: XCTestCase {
 
     // MARK: Pure-function / no-network cases
 
-    func testTestModeIsNoop() async {
-        let sink = Sink()
-        let c = Engine.forTesting()
-        await c.setSeeSink { sink.add($0) }
-        c.see(Boom(description: "x")).causesThe("checkout").to("use cached prices")
-        // Give any (incorrectly scheduled) Task a chance to run.
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertTrue(sink.all.isEmpty)
-    }
-
     func testControlFlowMarksAndReportsNothing() async {
         let sink = Sink()
-        let c = Engine(apiKey: "srv_key", baseURL: URL(string: "https://e.x")!)
+        let c = makeClient()
         await c.setSeeSink { sink.add($0) }
         let tail = c.controlFlowException(Boom(description: "not a Foo"))
             .because("because it wasn't an encoded Foo")
@@ -188,7 +196,7 @@ final class SeeTests: XCTestCase {
             subject: String(repeating: "s", count: 300),
             outcome: "o",
             extras: nil,
-            side: "server",
+            side: "client",
             sdkVersion: SDK_VERSION,
             env: nil
         )

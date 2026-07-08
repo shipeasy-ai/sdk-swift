@@ -1,105 +1,91 @@
 # Testing
 
-For unit tests, configure Shipeasy in **test mode** with `configureForTesting(...)`
-— a drop-in sibling of `configure(...)` that does **zero network**, needs **no API
-key**, and is immediately ready. Seed the values your code under test should see,
-then read them through the ordinary bound `Client`. It **replaces** any previous
-configuration, so each test can reconfigure freely.
+Tests run **hermetically** — no network, no `UserDefaults` — by constructing a
+`ShipeasyClient` directly with two injected dependencies:
+
+- an **in-memory `AnonymousStore`** (instead of `UserDefaultsAnonymousStore`), and
+- a **stub `ShipeasyClient.Transport`** that returns a canned `/sdk/evaluate` body.
+
+You then `await identify(...)` and assert against the ordinary reads. There is no
+`configureClient` in a test — you build the client yourself.
 
 ```swift
-import Shipeasy
+import XCTest
+@testable import Shipeasy
 
-// no key, no network; seed what the code under test should see
-await configureForTesting(
-    flags: ["new_checkout": true],                                  // [name: Bool]
-    configs: ["billing_copy": ["headline": "50% off"]],             // [name: Any?]
-    experiments: ["checkout_button": (group: "treatment",           // [name: (group, params)]
-                                      params: ["color": "green"])]
-)
+final class FlagTests: XCTestCase {
+    /// In-memory AnonymousStore standing in for UserDefaults/Keychain.
+    final class MemStore: AnonymousStore, @unchecked Sendable {
+        private let lock = NSLock()
+        private var map: [String: String]
+        init(_ seed: [String: String] = [:]) { self.map = seed }
+        func get(_ key: String) -> String? { lock.lock(); defer { lock.unlock() }; return map[key] }
+        func set(_ key: String, _ value: String) { lock.lock(); defer { lock.unlock() }; map[key] = value }
+    }
 
-// construct once per callsite (cheap; binds the user)
-let client = try Client(["user_id": "u_123"])
+    /// Transport stub: replies to /sdk/evaluate with a canned assignments body.
+    private let stubTransport: ShipeasyClient.Transport = { req in
+        let body: [String: Any] = [
+            "flags": ["new_ui": true],
+            "configs": ["theme": ["accent": "blue"]],
+            "experiments": ["exp1": ["inExperiment": true, "group": "treatment", "params": ["copy": "hi"]]],
+            "killswitches": ["payments": true],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        return (data, resp)
+    }
 
-await client.getFlag("new_checkout", default: false)   // true
-await client.getConfig("billing_copy")                 // ["headline": "50% off"]
+    func testFlagResolvesFromEvaluate() async {
+        let client = ShipeasyClient(
+            clientKey: "pk_test",
+            store: MemStore(),
+            disableTelemetry: true,          // never touch /collect in tests
+            transport: stubTransport
+        )
+        await client.identify(["user_id": "u1"])   // evaluate + cache
 
-let r = await client.getExperiment("checkout_button", defaultParams: nil)
-// r.inExperiment == true, r.group == "treatment", r.params == ["color": "green"]
-
-// track()/logExposure() are no-ops in test mode — safe to call, never send.
-await client.track("purchase")
-```
-
-The seed maps:
-
-- `flags: [String: Bool]` — forced `getFlag` results.
-- `configs: [String: Any?]` — forced `getConfig` results.
-- `experiments: [String: (group: String, params: Any?)]` — forced enrolments.
-
-## On-the-spot overrides
-
-Layer additional forced values on top of whatever you configured with the
-package-level override helpers (all `async`). An override always wins until you
-`clearOverrides()`:
-
-```swift
-await overrideFlag("FLAG_KEY", true)
-await overrideConfig("CONFIG_KEY", ["headline": "hi"])
-await overrideExperiment("EXPERIMENT_KEY", group: "treatment", params: ["color": "green"])
-
-// drop every on-the-spot override (and, in test mode, the seed too — test mode has
-// no blob beneath, so everything reverts to empty-blob defaults)
-await clearOverrides()
-```
-
-Under `configureForOffline` (below), `clearOverrides()` leaves the snapshot in
-place — evaluations revert to the snapshot rather than empty defaults.
-
-## Offline snapshots
-
-`configureForOffline(...)` evaluates the **real** rules from a snapshot with no
-network — a drop-in sibling of `configure(...)` (no API key). Provide exactly one
-source: a `path` to a JSON file, or an in-memory `snapshot`. Optional
-`flags`/`configs`/`experiments` overrides layer on top.
-
-```swift
-// From a JSON file on disk
-try await configureForOffline(path: "/path/to/snapshot.json")
-
-// …or an in-memory snapshot: ["flags": <flags blob>, "experiments": <experiments blob>]
-try await configureForOffline(snapshot: [
-    "flags": ["gates": [:], "configs": [:], "killswitches": [:]],
-    "experiments": ["experiments": [:], "universes": [:]]
-])
-
-let client = try Client(["user_id": "u_123"])
-let on = await client.getFlag("new_checkout")
-```
-
-### The snapshot file format
-
-A snapshot file is a single JSON object with a `flags` blob (the body of
-`/sdk/flags`) and an `experiments` blob (the body of `/sdk/experiments`):
-
-```json
-{
-  "flags": {
-    "gates": {
-      "new_checkout": { "enabled": true, "rolloutPct": 10000, "salt": "s" }
-    },
-    "configs": {
-      "billing_copy": { "headline": "Welcome" }
-    },
-    "killswitches": {}
-  },
-  "experiments": {
-    "experiments": {},
-    "universes": {}
-  }
+        let on = await client.getFlag("new_ui", default: false)
+        XCTAssertTrue(on)
+    }
 }
 ```
 
-A gate is `{ "enabled": true, "rolloutPct": 10000, "salt": "s" }` where
-`rolloutPct` is in **basis points** — `10000` is 100%, `1000` is 10%, `0` is off.
-`configs` maps a config name to its JSON value. Empty `killswitches` /
-`experiments` / `universes` objects are valid.
+## What the injected pieces do
+
+- **`store:`** — a `MemStore` seeded with `[AnonId.cookie: "anon_x"]` pins the
+  device id; seeded empty, the client mints one and writes it back (assert on the
+  keys your stub recorded). This is how you test that bucketing is stable across
+  "launches".
+- **`transport:`** — a closure `(URLRequest) async throws -> (Data, HTTPURLResponse)`.
+  Branch on `req.url?.path`: return your canned body for `/sdk/evaluate`, and an
+  empty `200` for `/collect`. Throw (e.g. `URLError(.notConnectedToInternet)`) to
+  test that a failed evaluate is non-fatal and reads fall back to their defaults.
+- **`disableTelemetry: true`** — keeps `track` / exposures / `see()` off the
+  network. If you *do* want to assert on telemetry, leave it on and record the
+  `/collect` requests in the transport instead.
+
+## The `/sdk/evaluate` response shape
+
+The canned body mirrors what the edge returns. Every key is optional (an absent
+map is an empty map):
+
+```json
+{
+  "flags": { "new_ui": true },
+  "configs": { "theme": { "accent": "blue" } },
+  "experiments": { "exp1": { "inExperiment": true, "group": "treatment", "params": { "copy": "hi" } } },
+  "killswitches": { "payments": true }
+}
+```
+
+Before the first `identify`/evaluate, every read returns the supplied default
+(`getFlag` → `false`/your default, `getConfig` → `nil`/your default,
+`getExperiment` → `inExperiment: false`). See the real patterns in
+`Tests/ShipeasyTests/ClientModeTests.swift` and `Tests/ShipeasyTests/SeeTests.swift`.
+
+## Resetting global state
+
+If a test path went through `configureClient(...)`, drop the process-global client
+between tests with `resetClientConfig()` so the next `configureClient` takes
+effect. It exists for tests only.

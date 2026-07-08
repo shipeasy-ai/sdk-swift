@@ -49,18 +49,20 @@ docs/
 ### `pages/`
 
 One feature-reference page per fixed key. Each starts with an H1 and documents
-that feature for **this SDK's real API**. Written around `configure()` +
-`try Client(user)` — never the `Engine` (see the repo-root `CLAUDE.md`). Reads are
-`async`.
+that feature for **this SDK's real API** — the native client: `configureClient()`
++ `ShipeasyClient` (public client key, `/sdk/evaluate`, persisted device anon id).
+There is **no server surface** (no `configure(apiKey:)` / `Client(user)` /
+`Engine`) — see the repo-root `CLAUDE.md`. Reads are `async`.
 
 ### `snippets/<group>/<leaf>.md`
 
 Minimal copy-paste examples. Conventions (enforced):
 
-- **No `configure()` call inside snippet code** — a one-line "Assumes
-  `configure()` ran at startup — see Installation." note instead.
-- **Construct the bound client on its own line**, with a "construct once per
-  callsite" comment — never chain.
+- **No `configureClient()` call inside snippet code** — a one-line "Assumes
+  `configureClient(...)` ran at startup — see Installation." note instead.
+- **Reach the client via `shipeasyClient()`** (the process-global) — reads are
+  `await shipeasyClient()?.getFlag(...) ?? default`; bind `let client =
+  shipeasyClient()!` on its own line when a block makes several calls.
 - **Document every argument** inline.
 - Use the manifest's `{{PLACEHOLDER}}` tokens, not hard-coded names.
 - A file may hold a few labelled mini-snippets (`### Heading` + a block each).

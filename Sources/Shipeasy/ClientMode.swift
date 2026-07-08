@@ -95,6 +95,13 @@ public actor ShipeasyClient {
     private var sticky: [String: Any] = [:]
     private var ready = false
 
+    // Per-process spam guard for see() error reports so a hot loop can't flood
+    // /collect (dedup window + hard cap; see SeeLimiter).
+    private let seeLimiter = SeeLimiter()
+    // Test seam: when set, built see() events are handed here (after limiter +
+    // sanitize) instead of being POSTed. Set via `setSeeSink(_:)`.
+    private var seeSink: (@Sendable ([String: Any]) -> Void)?
+
     /// Storage key for the sticky state (kept next to the anon id in the store).
     private static let stickyStoreKey = "__se_sticky"
 
@@ -142,6 +149,15 @@ public actor ShipeasyClient {
             endpoint: telemetryURL, sdkKey: clientKey, side: "client",
             env: env, disabled: disableTelemetry, session: session
         )
+        // Wire the internal self-monitoring channel (SDK-own-bug reporting to
+        // Shipeasy's own project), tagged `client`. Inert until the ingest key is
+        // baked; gated on telemetry so hermetic test clients stay silent.
+        InternalReport.shared.setContext(
+            side: "client", sdkVersion: SDK_VERSION, enabled: !disableTelemetry
+        )
+        // Register as the default client backing the package-level see() funcs
+        // (last constructed wins — the client-SDK analog of TS's shipeasy({key})).
+        setDefaultClient(self)
     }
 
     // MARK: - Identity
@@ -274,6 +290,35 @@ public actor ShipeasyClient {
     private func stripPrivate(_ props: [String: Any]) -> [String: Any] {
         guard !privateAttributes.isEmpty else { return props }
         return props.filter { !privateAttributes.contains($0.key) }
+    }
+
+    // MARK: - see() structured error reporting
+
+    /// Install a test sink that receives the built see() event instead of the
+    /// network POST. Test-only; pass nil to restore the network path.
+    func setSeeSink(_ sink: (@Sendable ([String: Any]) -> Void)?) {
+        seeSink = sink
+    }
+
+    /// Build the wire event and fire-and-forget POST it to `/collect`. Spam-
+    /// guarded. Never throws into caller code. Invoked from `SeeChain.to(_:)` via
+    /// `Task { await client._dispatchSee(built) }`.
+    func _dispatchSee(_ built: SeeBuilt) {
+        let ev = buildSeeEvent(
+            built.problem,
+            subject: built.subject,
+            outcome: built.outcome,
+            extras: built.extras.map(stripPrivate),
+            side: "client",
+            sdkVersion: SDK_VERSION,
+            env: env
+        )
+        if !seeLimiter.shouldSend(ev) { return }
+        if let seeSink {
+            seeSink(ev)
+            return
+        }
+        send(event: ev)
     }
 
     /// POST `/sdk/evaluate` for the bound user and apply the returned

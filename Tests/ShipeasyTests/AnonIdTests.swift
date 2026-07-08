@@ -47,21 +47,4 @@ final class AnonIdTests: XCTestCase {
         XCTAssertFalse(h.contains("HttpOnly"))
         XCTAssertFalse(AnonId.setCookieHeader("abc", secure: false).contains("Secure"))
     }
-
-    // The no-unit eval rule is a cross-SDK contract.
-    func testEvalGateNoUnit() {
-        XCTAssertTrue(Eval.evalGate(["enabled": 1, "salt": "s", "rolloutPct": 10000], [:]))
-        XCTAssertFalse(Eval.evalGate(["enabled": 1, "salt": "s", "rolloutPct": 5000], [:]))
-        XCTAssertFalse(Eval.evalGate(["enabled": 0, "rolloutPct": 10000], [:]))
-        XCTAssertFalse(Eval.evalGate(["enabled": 1, "killswitch": 1, "rolloutPct": 10000], [:]))
-
-        let ruled: [String: Any] = [
-            "enabled": 1, "salt": "s", "rolloutPct": 10000,
-            "rules": [["attr": "plan", "op": "eq", "value": "pro"]],
-        ]
-        XCTAssertFalse(Eval.evalGate(ruled, [:]))
-        XCTAssertTrue(Eval.evalGate(ruled, ["plan": "pro"]))
-
-        XCTAssertFalse(Eval.evalGate(["enabled": 1, "salt": "s", "rolloutPct": 0], ["user_id": "u1"]))
-    }
 }

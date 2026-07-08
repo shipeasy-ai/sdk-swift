@@ -1,9 +1,3 @@
-Rendering a translated label is **client-side** — the Swift server SDK has no
-`t()`. After the loader from `i18nScriptTag(...)` hydrates the `{{PROFILE}}`
-profile, render in the browser with the client SDK:
-
-```ts
-// browser (@shipeasy/sdk client) — NOT Swift
-import { t } from "@shipeasy/sdk/client";
-t("checkout.cta"); // -> the translated string
-```
+i18n is not part of the native client SDK — see the i18n page
+(<https://shipeasy-ai.github.io/sdk-swift/pages/i18n.md>). A native app localizes
+its copy with the platform's own tooling (String Catalogs / `Localizable.strings`).

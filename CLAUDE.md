@@ -4,34 +4,41 @@ Guidance for AI agents (and humans) working in this repository.
 
 ## What this is
 
-The **server/edge** Swift SDK for [Shipeasy](https://shipeasy.ai): feature flags,
-dynamic configs, kill switches, A/B experiments, metric tracking, `see()` error
-reporting, and SSR/i18n helpers. Server-key only; never embed it in a shipped app
-bundle. Library source under `Sources/Shipeasy/`; tests under
-`Tests/ShipeasyTests/` (XCTest). `Engine` is a Swift `actor`, so reads are `async`.
+The **native client** Swift SDK for [Shipeasy](https://shipeasy.ai) — for shipped
+**iOS / macOS / tvOS / watchOS** apps only. Feature flags, dynamic configs, kill
+switches, A/B experiments, metric tracking, and `see()` error reporting, using the
+**public client key** (`pk_…`, safe to embed). `ShipeasyClient` evaluates the
+device user server-side over `POST /sdk/evaluate`, caches the assignments for cheap
+local reads, and **persists the device `anonymous_id` across launches**. There is
+**no server surface** — a backend uses a server SDK (TS / Python / Go / …). Library
+source under `Sources/Shipeasy/`; tests under `Tests/ShipeasyTests/` (XCTest).
+`ShipeasyClient` is a Swift `actor`, so reads are `async`.
 
 There is **no OpenFeature provider** in Swift (the Swift OpenFeature ecosystem is
-immature) — `getFlag` / `getFlagDetail` are the interop surface.
+immature) — `getFlag` is the interop surface. There is **no i18n** in the native
+client (i18n was a browser/SSR feature; a native app localizes with the platform's
+own tooling).
 
 ## The documented public surface (this is a contract)
 
 Users are taught exactly **two** things, and the docs must never drift from them:
 
-1. **`configure()`** — and its siblings `configureForTesting()` /
-   `configureForOffline()` — for setup.
-2. **`try Client(user)`** — the cheap, user-bound handle for *all* reads
-   (`getFlag` / `getFlagDetail` / `getConfig` / `getKillswitch` / `getExperiment`
-   / `logExposure` / `track`).
+1. **`configureClient(clientKey:)`** — call once at app launch (idempotent,
+   first-config-wins). Returns the process-global `ShipeasyClient`; fetch it later
+   with `shipeasyClient()`.
+2. **`ShipeasyClient`** — the actor for *everything*: `identify(_:)` / `reset()` /
+   `refreshAssignments()`, the reads `getFlag` / `getConfig` / `getExperiment` /
+   `getKillswitch`, and `track(_:properties:)` / `logExposure(_:)`. All `async`.
 
-Plus the package-level helpers that let users avoid the heavyweight object (all
-`async`): `overrideFlag` / `overrideConfig` / `overrideExperiment` /
-`clearOverrides`, `onChange`, `bootstrapScriptTag` / `i18nScriptTag`, and the
-`see()` family.
+Plus the package-level `see()` / `seeViolation()` / `controlFlowException()` error
+reporting (dispatched by the configured client), the `AnonymousStore` protocol +
+`UserDefaultsAnonymousStore` (pluggable persistence), and `resetClientConfig()`
+(tests only).
 
-**The `Engine` actor is an internal detail. Do NOT document it.** It stays public
-for advanced/back-compat use, but no page, snippet, skill, or the README should
-tell a user to construct or call an `Engine`. New user-facing capability should
-get a `configure`-style or package-level affordance, then be documented through it.
+**Never reintroduce a server surface.** No `configure(apiKey:)`, `Client(user)`,
+`Engine`, local rule evaluation, SSR/bootstrap tags, or server framework wiring —
+those were removed at 1.0.0. New capability gets a `ShipeasyClient` method or a
+package-level client affordance, then is documented through it.
 
 ## HARD RULE: change the SDK → update the docs in the SAME change
 
