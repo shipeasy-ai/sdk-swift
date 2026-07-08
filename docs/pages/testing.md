@@ -40,8 +40,9 @@ final class FlagTests: XCTestCase {
     func testFlagResolvesFromEvaluate() async {
         let client = ShipeasyClient(
             clientKey: "pk_test",
+            isNetworkEnabled: true,          // force the network on for the test env
+            isTrackingEnabled: false,        // keep the usage telemetry beacon off
             store: MemStore(),
-            disableTelemetry: true,          // never touch /collect in tests
             transport: stubTransport
         )
         await client.identify(["user_id": "u1"])   // evaluate + cache
@@ -62,9 +63,15 @@ final class FlagTests: XCTestCase {
   Branch on `req.url?.path`: return your canned body for `/sdk/evaluate`, and an
   empty `200` for `/collect`. Throw (e.g. `URLError(.notConnectedToInternet)`) to
   test that a failed evaluate is non-fatal and reads fall back to their defaults.
-- **`disableTelemetry: true`** — keeps `track` / exposures / `see()` off the
-  network. If you *do* want to assert on telemetry, leave it on and record the
-  `/collect` requests in the transport instead.
+- **`isNetworkEnabled: true`** — the SDK is offline by default outside production
+  (see [configuration](configuration.md#environment-derived-egress-defaults)), and
+  a test process is not production, so a `/sdk/evaluate` call would never fire.
+  Force it on for the client under test — or set `SHIPEASY_ENV=production` for the
+  whole test target so every client defaults to on. When you *want* to assert the
+  offline default itself, leave it `nil` and keep the env non-production.
+- **`isTrackingEnabled: false`** — keeps the usage telemetry beacon off while the
+  evaluate/`/collect` network path stays on. If you *do* want to assert on
+  telemetry, leave it on and record the requests in the transport instead.
 
 ## The `/sdk/evaluate` response shape
 

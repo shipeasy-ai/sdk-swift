@@ -122,8 +122,9 @@ final class FlagTests: XCTestCase {
     func testFlagResolvesFromEvaluate() async {
         let client = ShipeasyClient(
             clientKey: "pk_test",
+            isNetworkEnabled: true,          // force the network on for the test env
+            isTrackingEnabled: false,        // keep the usage telemetry beacon off
             store: MemStore(),
-            disableTelemetry: true,          // never touch /collect in tests
             transport: stubTransport
         )
         await client.identify(["user_id": "u1"])   // evaluate + cache

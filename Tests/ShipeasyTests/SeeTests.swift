@@ -5,7 +5,7 @@ import XCTest
 import FoundationNetworking
 #endif
 
-final class SeeTests: XCTestCase {
+final class SeeTests: ShipeasyProdEnvTestCase {
     /// Thread-safe recorder for captured see() events via the actor's seeSink.
     final class Sink: @unchecked Sendable {
         private let lock = NSLock()
@@ -27,7 +27,7 @@ final class SeeTests: XCTestCase {
         ShipeasyClient(
             clientKey: "pk_key",
             baseURL: URL(string: "https://e.x")!,
-            disableTelemetry: true,
+            isTrackingEnabled: false,
             privateAttributes: privateAttributes,
             transport: Self.noopTransport
         )

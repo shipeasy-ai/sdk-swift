@@ -10,7 +10,7 @@ import FoundationNetworking
 /// PERSISTED across launches so a logged-out visitor buckets identically every
 /// cold start. These tests inject an in-memory store + a stub transport so they
 /// run hermetically (no network, no UserDefaults).
-final class ClientModeTests: XCTestCase {
+final class ClientModeTests: ShipeasyProdEnvTestCase {
 
     /// An in-memory `AnonymousStore` standing in for UserDefaults/Keychain.
     final class MemStore: AnonymousStore, @unchecked Sendable {
@@ -64,7 +64,7 @@ final class ClientModeTests: XCTestCase {
     func testAdoptsPersistedAnonId() async {
         let store = MemStore([AnonId.cookie: "anon_persisted_123"])
         let stub = StubTransport(evaluateResponse: ["flags": ["f": true], "configs": [:], "experiments": [:], "killswitches": [:]])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         let anon = await client.anonymousId
         XCTAssertEqual(anon, "anon_persisted_123")
         await client.identify(["user_id": "u1"])
@@ -79,7 +79,7 @@ final class ClientModeTests: XCTestCase {
     func testMintsAndPersistsOnFirstRun() async {
         let store = MemStore()
         let stub = StubTransport(evaluateResponse: ["flags": [:], "configs": [:], "experiments": [:], "killswitches": [:]])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         let anon = await client.anonymousId
         XCTAssertFalse(anon.isEmpty)
         // A non-empty id was written back for the next launch.
@@ -90,7 +90,7 @@ final class ClientModeTests: XCTestCase {
     func testReadsReturnDefaultsBeforeIdentify() async {
         let store = MemStore()
         let stub = StubTransport()
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         let f = await client.getFlag("f", default: false)
         let c = await client.getConfig("c")
         let a = await client.universe("checkout").assign()
@@ -109,7 +109,7 @@ final class ClientModeTests: XCTestCase {
             "universes": ["checkout": ["defaults": ["copy": "default"]]],
             "killswitches": ["payments": true],
         ])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         await client.identify(["user_id": "u1"])
 
         let f = await client.getFlag("new_ui")
@@ -141,7 +141,7 @@ final class ClientModeTests: XCTestCase {
             ]],
             "universes": ["checkout": ["defaults": ["button_color": "red", "size": 1]]],
         ])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         await client.identify(["user_id": "u1"])
 
         let a = await client.universe("checkout").assign()
@@ -175,7 +175,7 @@ final class ClientModeTests: XCTestCase {
             ]],
             "universes": ["checkout": ["defaults": ["button_color": "red"]]],
         ])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         await client.identify(["user_id": "u1"])
 
         let a = await client.universe("checkout").assign()
@@ -205,7 +205,7 @@ final class ClientModeTests: XCTestCase {
             ]],
             "universes": ["checkout": ["defaults": [:]]],
         ])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         await client.identify(["user_id": "u1"])
 
         let a = await client.universe("checkout").assign(logExposure: false)
@@ -222,7 +222,7 @@ final class ClientModeTests: XCTestCase {
         let store = MemStore()
         let stub = StubTransport()
         stub.failEvaluate = true
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         await client.identify(["user_id": "u1"])   // must not throw
         let f = await client.getFlag("f", default: true)
         XCTAssertTrue(f, "reads fall back to the supplied default when no assignments loaded")
@@ -231,7 +231,7 @@ final class ClientModeTests: XCTestCase {
     func testTrackPostsToCollectWithAnonId() async {
         let store = MemStore([AnonId.cookie: "anon_x"])
         let stub = StubTransport(evaluateResponse: ["flags": [:], "configs": [:], "experiments": [:], "killswitches": [:]])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         await client.identify(["user_id": "u1"])
         await client.track("checkout", properties: ["value": 42])
 
@@ -252,7 +252,7 @@ final class ClientModeTests: XCTestCase {
             "flags": [:], "configs": [:], "experiments": [:], "killswitches": [:],
             "sticky": ["exp1": ["g": "treatment", "s": "abc12345"]],
         ])
-        let client = ShipeasyClient(clientKey: "pk", store: store, disableTelemetry: true, transport: stub.transport)
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
         await client.identify(["user_id": "u1"])
         // Sticky persisted for the next launch.
         XCTAssertNotNil(store.get("__se_sticky"))

@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.1.0 — 2026-07-08
+
+### Added — environment-derived network & telemetry (egress) defaults
+
+The client is now **quiet by default outside production**: on a dev machine or in
+CI it makes **no** outbound request (no `/sdk/evaluate`, no `/collect`, no usage
+telemetry) unless it detects a production environment or you opt in explicitly.
+
+- **Added** `ShipeasyClient.init(..., isNetworkEnabled: Bool? = nil, isTrackingEnabled: Bool? = nil, ...)`
+  and the matching `configureClient(..., isNetworkEnabled:isTrackingEnabled:...)`
+  options.
+  - `isNetworkEnabled` is the **master egress switch** — when off, the client is
+    fully offline (reads serve the cache / supplied defaults; `track`, exposures
+    and `see()` become no-ops).
+  - `isTrackingEnabled` toggles the per-evaluation usage telemetry beacon; it is
+    forced off whenever the network switch is off.
+  - Both default to **on in production and off in every other environment**.
+    Passing an explicit `true`/`false` always overrides the environment default.
+- **Added** the internal `isProductionEnv(_:)` helper. It decides "production" from
+  the native env var `SHIPEASY_ENV`, then `APP_ENV`, then `ENV`
+  (`production`/`prod`, case-insensitive ⇒ prod); with no native var set it falls
+  back to the `#if DEBUG` build flag (debug ⇒ not prod, release ⇒ prod), then to
+  the SDK's own `env:` option (default `"prod"`).
+
+**BEHAVIOUR CHANGE:** earlier versions always made network calls regardless of
+environment. To restore that everywhere, set `SHIPEASY_ENV=production` in the
+app's environment, ship a release build, or pass `isNetworkEnabled: true`.
+
+**Note:** the `disableTelemetry` init/`configureClient` parameter is replaced by
+`isTrackingEnabled` (its inverse). Replace `disableTelemetry: true` with
+`isTrackingEnabled: false`.
+
 ## 2.0.0 — 2026-07-08
 
 ### Changed (BREAKING) — universe-first experiment assignment

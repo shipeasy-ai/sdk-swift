@@ -63,7 +63,7 @@ public struct UserDefaultsAnonymousStore: AnonymousStore {
 
 /// The native mobile client handle. Holds a public client key, one device user,
 /// and the cached assignments from the last `POST /sdk/evaluate`. Construct once
-/// per app (usually via ``configureClient(clientKey:baseURL:env:session:store:disableTelemetry:privateAttributes:transport:)``
+/// per app (usually via ``configureClient(clientKey:baseURL:env:session:isNetworkEnabled:isTrackingEnabled:telemetryURL:store:privateAttributes:transport:)``
 /// and read back with ``shipeasyClient()``). Reads are `async` because the type
 /// is an `actor`, but they never touch the network — they serve the cache.
 public actor ShipeasyClient {
@@ -78,6 +78,11 @@ public actor ShipeasyClient {
     private let transport: Transport
     private let telemetry: Telemetry
     private let privateAttributes: [String]
+    /// Master egress gate. When `false` the client is fully offline: no
+    /// `/sdk/evaluate`, no `/collect` (track/exposure/see), no telemetry — reads
+    /// serve the cache / supplied defaults. Env-derived default: ON in production,
+    /// OFF everywhere else (see ``isProductionEnv(_:)``).
+    private let networkEnabled: Bool
 
     /// The stable, persisted anonymous bucketing id — resolved once at init from
     /// the store (or freshly minted + written back on first launch).
@@ -114,9 +119,10 @@ public actor ShipeasyClient {
         baseURL: URL = URL(string: "https://api.shipeasy.ai")!,
         env: String = "prod",
         session: URLSession = .shared,
-        store: AnonymousStore = UserDefaultsAnonymousStore(),
-        disableTelemetry: Bool = false,
+        isNetworkEnabled: Bool? = nil,
+        isTrackingEnabled: Bool? = nil,
         telemetryURL: String = "https://t.shipeasy.ai",
+        store: AnonymousStore = UserDefaultsAnonymousStore(),
         privateAttributes: [String] = [],
         transport: Transport? = nil
     ) {
@@ -125,6 +131,17 @@ public actor ShipeasyClient {
         self.env = env
         self.store = store
         self.privateAttributes = privateAttributes
+        // Environment-derived egress defaults. In production both network and
+        // telemetry are ON; outside production both are OFF so an app embedding
+        // the SDK never phones home from a dev machine or CI. An explicitly-passed
+        // value ALWAYS overrides the env default.
+        let prod = isProductionEnv(env)
+        let netOn = isNetworkEnabled ?? prod
+        self.networkEnabled = netOn
+        // `isTrackingEnabled` reuses the telemetry on/off machinery: nil ⇒ track
+        // in production only; explicit value overrides. Telemetry is additionally
+        // forced OFF whenever the master network switch is OFF (fully offline).
+        let trackingOn = netOn && (isTrackingEnabled ?? prod)
         self.transport = transport ?? { req in
             let (data, response) = try await session.seData(for: req)
             // corelibs-foundation (Linux) has no HTTPURLResponse() initializer,
@@ -153,16 +170,18 @@ public actor ShipeasyClient {
             self.sticky = decoded
         }
         // Per-evaluation usage telemetry, tagged `client` so usage is metered on
-        // the client path. ON by default (disable with `disableTelemetry`).
+        // the client path. Env-derived default (see above): on in prod, off
+        // elsewhere; forced off when the network master switch is off.
         self.telemetry = Telemetry(
             endpoint: telemetryURL, sdkKey: clientKey, side: "client",
-            env: env, disabled: disableTelemetry, session: session
+            env: env, disabled: !trackingOn, session: session
         )
         // Wire the internal self-monitoring channel (SDK-own-bug reporting to
         // Shipeasy's own project), tagged `client`. Inert until the ingest key is
-        // baked; gated on telemetry so hermetic test clients stay silent.
+        // baked; gated on the network switch so an offline / hermetic client
+        // stays fully silent.
         InternalReport.shared.setContext(
-            side: "client", sdkVersion: SDK_VERSION, enabled: !disableTelemetry
+            side: "client", sdkVersion: SDK_VERSION, enabled: netOn
         )
         // Register as the default client backing the package-level see() funcs
         // (last constructed wins — the client-SDK analog of TS's shipeasy({key})).
@@ -362,6 +381,9 @@ public actor ShipeasyClient {
     /// assignments. Never throws into caller code — a failed refresh leaves the
     /// last-known assignments in place (or the safe defaults before first fetch).
     private func refresh() async {
+        // Fully offline (env-derived default outside prod, or explicit opt-out):
+        // never hit /sdk/evaluate. Reads serve the safe defaults.
+        guard networkEnabled else { return }
         var body: [String: Any] = ["user": evaluateUser()]
         if !privateAttributes.isEmpty { body["private_attributes"] = privateAttributes }
         if !sticky.isEmpty { body["sticky"] = sticky }
@@ -434,8 +456,11 @@ public actor ShipeasyClient {
         }
     }
 
-    /// Fire-and-forget one event to `/collect` with the client key.
+    /// Fire-and-forget one event to `/collect` with the client key. No-op when
+    /// the network master switch is off (track / exposure / identify / see all
+    /// route through here, so this one gate keeps the client fully offline).
     private func send(event: [String: Any]) {
+        guard networkEnabled else { return }
         let body: [String: Any] = ["events": [event]]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
         let url = baseURL.appendingPathComponent("/collect")
@@ -455,7 +480,7 @@ public actor ShipeasyClient {
 // MARK: - Package-global client front door
 
 /// Process-wide holder for the single ``ShipeasyClient`` built by
-/// ``configureClient(clientKey:baseURL:env:session:store:disableTelemetry:privateAttributes:transport:)``.
+/// ``configureClient(clientKey:baseURL:env:session:isNetworkEnabled:isTrackingEnabled:telemetryURL:store:privateAttributes:transport:)``.
 /// First-config-wins, matching the server SDK's `configure(...)` idempotency.
 final class ClientGlobal: @unchecked Sendable {
     static let shared = ClientGlobal()
@@ -496,9 +521,10 @@ public func configureClient(
     baseURL: URL = URL(string: "https://api.shipeasy.ai")!,
     env: String = "prod",
     session: URLSession = .shared,
-    store: AnonymousStore = UserDefaultsAnonymousStore(),
-    disableTelemetry: Bool = false,
+    isNetworkEnabled: Bool? = nil,
+    isTrackingEnabled: Bool? = nil,
     telemetryURL: String = "https://t.shipeasy.ai",
+    store: AnonymousStore = UserDefaultsAnonymousStore(),
     privateAttributes: [String] = [],
     transport: ShipeasyClient.Transport? = nil
 ) -> ShipeasyClient {
@@ -508,9 +534,10 @@ public func configureClient(
             baseURL: baseURL,
             env: env,
             session: session,
-            store: store,
-            disableTelemetry: disableTelemetry,
+            isNetworkEnabled: isNetworkEnabled,
+            isTrackingEnabled: isTrackingEnabled,
             telemetryURL: telemetryURL,
+            store: store,
             privateAttributes: privateAttributes,
             transport: transport
         )

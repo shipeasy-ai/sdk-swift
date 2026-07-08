@@ -106,8 +106,10 @@ let transport: ShipeasyClient.Transport = { req in
     return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
 }
 
-let client = ShipeasyClient(clientKey: "pk_test", store: MemStore(),
-                            disableTelemetry: true, transport: transport)
+// isNetworkEnabled: true forces the network on (the SDK is offline by default
+// outside production); isTrackingEnabled: false keeps the telemetry beacon off.
+let client = ShipeasyClient(clientKey: "pk_test", isNetworkEnabled: true,
+                            isTrackingEnabled: false, store: MemStore(), transport: transport)
 await client.identify(["user_id": "u1"])
 _ = await client.getFlag("new_ui", default: false)   // true
 // resetClientConfig() drops the process-global client between tests (tests only).
