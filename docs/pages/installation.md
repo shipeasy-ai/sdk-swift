@@ -53,6 +53,25 @@ import Shipeasy
 
 ---
 
+## Packaging — one library, two front doors
+
+The Swift SDK ships as a **single SwiftPM library product**, `Shipeasy`, that
+contains **both** front doors — you `import Shipeasy` either way:
+
+| Front door | Use it for | Key |
+| ---------- | ---------- | --- |
+| `configure()` + `Client(user)` | A **server** (Vapor / Hummingbird / CLI) | **server** key |
+| `configureClient()` + `ShipeasyClient` | A **shipped app** (iOS / macOS / tvOS / watchOS) | **public client** key |
+
+They share almost everything (evaluation types, telemetry, `AnonId`, `see()`),
+and for a typical app build SwiftPM statically links the library and the linker
+**dead-strips the code you don't call** — so a shipped app doesn't carry the
+server path, and a server doesn't carry the client path. In an app, use **only**
+`configureClient()` / `ShipeasyClient`, and never call `configure(apiKey:)` with a
+server key.
+
+---
+
 ## Configure (`configure()`)
 
 `configure(...)` wires the API key, HTTP, the rules cache, and (optionally) the
