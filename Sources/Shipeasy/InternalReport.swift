@@ -135,8 +135,9 @@ final class InternalReport: @unchecked Sendable {
         req.httpBody = data
         req.setValue(key, forHTTPHeaderField: "X-SDK-Key")
         req.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        let request = req
         Task {
-            _ = try? await session.seData(for: req)
+            _ = try? await session.seData(for: request)
         }
     }
 
