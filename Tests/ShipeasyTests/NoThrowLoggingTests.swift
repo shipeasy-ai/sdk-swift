@@ -16,9 +16,23 @@ final class NoThrowLoggingTests: XCTestCase {
         var count: Int { lock.lock(); defer { lock.unlock() }; return lines.count }
     }
 
+    override func setUp() {
+        super.setUp()
+        // This class constructs reporting-enabled engines (the public network
+        // init leaves the process-global InternalReport channel enabled) and
+        // trips the safeRun guard via adversarial/malformed snapshot reads. The
+        // baked ingest key is now REAL, so an enabled channel + tripped guard
+        // could fire a live POST to api.shipeasy.ai/collect. Force the key back
+        // to the inert placeholder for every test here so no read in this class
+        // can ever reach the real send — keyConfigured() gates on it.
+        InternalReport.shared.setIngestKeyForTest(InternalReport.placeholderKey)
+    }
+
     override func tearDown() {
         Log.setSink(nil)
         Log.level = .warn
+        // Leave the channel inert for whatever test runs next.
+        InternalReport.shared.setIngestKeyForTest(InternalReport.placeholderKey)
         super.tearDown()
     }
 

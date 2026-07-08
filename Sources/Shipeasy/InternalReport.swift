@@ -61,7 +61,7 @@ final class InternalReport: @unchecked Sendable {
     private let lock = NSLock()
     // The active ingest key. Starts inert; swap in the real minted key by
     // editing `placeholderKey`'s replacement below, or via a test seam.
-    private var ingestKey = InternalReport.placeholderKey
+    private var ingestKey = "sdk_client_00bd4608a03e4084922978f9522614d5"
     // Set once from the Engine initializer. Null until configured (a report
     // before configure is a no-op — nothing to attribute it to).
     private var side: String?
