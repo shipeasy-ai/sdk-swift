@@ -37,6 +37,15 @@ recording conversions via `client.track(...)` and exposures via
 `clearOverrides`, `onChange`, `bootstrapScriptTag`, `i18nScriptTag`) cover the
 remaining cross-cutting needs.
 
+## Shipping in a mobile app? Use `ShipeasyClient`
+
+`configure()` / `Client(user)` is the **server** SDK — it holds a server key and
+evaluates rules locally. **Never embed a server key in a shipped app.** For an
+iOS / macOS / tvOS / watchOS app, use `configureClient(clientKey:)` +
+`ShipeasyClient`: a **public client key**, server-side evaluation over
+`POST /sdk/evaluate`, and a **persisted device `anonymous_id`** so logged-out
+users bucket identically across launches. See [installation](installation.md#native-mobile-client--shipped-apps-shipeasyclient).
+
 ## Pages
 
 - [installation](installation.md) — SwiftPM dependency, runtime, import, and the canonical `configure()` reference.

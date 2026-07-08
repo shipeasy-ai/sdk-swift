@@ -233,9 +233,66 @@ struct Server {
 
 ---
 
-## Server-key only
+## Native mobile client — shipped apps (`ShipeasyClient`)
 
-Use a **server** key (e.g. from
+Everything above is the **server** SDK: it holds a server key, pulls the raw
+rules and evaluates locally. **Do not embed a server key in a shipped app** — it
+grants read access to all of your targeting rules, and the edge blocks client
+keys from the server-only blob routes anyway.
+
+For an iOS / macOS / tvOS / watchOS app, use `ShipeasyClient` with your **public
+client key** (`pk_…`, safe to ship). It evaluates one device user server-side
+over `POST /sdk/evaluate` and caches the assignments for cheap local reads.
+Crucially it **persists the device `anonymous_id` across launches**, so a
+logged-out user buckets identically on every cold start.
+
+```swift
+import Shipeasy
+
+// Once, at app launch (e.g. in your App/SceneDelegate or @main App init):
+configureClient(clientKey: "pk_live_…")
+
+// Bind the user (call with [:] for a logged-out visitor; again on login):
+await shipeasyClient()?.identify(["user_id": "u_123", "plan": "pro"])
+
+// Reads serve the cached assignments (no per-call network):
+let on = await shipeasyClient()?.getFlag("new_checkout") ?? false
+```
+
+### `configureClient()` options
+
+| Param               | Default | Purpose |
+| ------------------- | ------- | ------- |
+| `clientKey`         | —       | Your **public client** key (`pk_…`). Safe to embed in the app. Required. |
+| `baseURL`           | `https://api.shipeasy.ai` | The edge endpoint. |
+| `env`               | `"prod"` | Deployment env; selects which environment's rules the edge evaluates. |
+| `store`             | `UserDefaultsAnonymousStore()` | Where the persistent `anonymous_id` lives. Supply your own `AnonymousStore` for the Keychain / app-group / tests — see [advanced](advanced.md). |
+| `disableTelemetry`  | `false` | Suppress the per-evaluation usage beacons. |
+| `privateAttributes` | `[]`    | Attribute names stripped from outbound `track()` payloads. |
+
+### The `ShipeasyClient` surface
+
+`configureClient(...)` returns the client and stores it as the process-global one
+(fetch it with `shipeasyClient()`). It is an `actor`, so its methods are `async`:
+
+```swift
+let se = shipeasyClient()!
+await se.identify(["user_id": "u_123"])   // evaluate + cache for this user
+let flag = await se.getFlag("new_ui", default: false)
+let cfg  = await se.getConfig("theme")
+let exp  = await se.getExperiment("checkout_button", defaultParams: ["color": "blue"])
+let ks   = await se.getKillswitch("payments")
+
+await se.logExposure("checkout_button")            // record where you show it
+await se.track("purchase", properties: ["amount": 49])
+
+await se.reset()                                    // logout: keep the device anon id, drop user_id
+```
+
+The stable device id is exposed as `await se.anonymousId`.
+
+## Server-key only (the `configure()` path)
+
+The `configure()` / `Client(user)` surface uses a **server** key (e.g. from
 `ProcessInfo.processInfo.environment["SHIPEASY_SERVER_KEY"]`). Never embed the
-server key in an iOS app bundle — a future `ShipeasyClient` package will cover
-client-key, mobile-friendly use.
+server key in an app bundle — reach for `ShipeasyClient` above instead.

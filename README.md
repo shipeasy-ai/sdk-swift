@@ -9,9 +9,11 @@
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20iOS%20%7C%20Linux-lightgrey.svg)](https://github.com/shipeasy-ai/sdk-swift)
 
-Server/edge SDK for [Shipeasy](https://shipeasy.ai) — **feature flags, dynamic
-configs, kill switches, A/B experiments, and metric tracking** for Swift. Use the
-server key on a server; never embed it in a shipped client app.
+SDK for [Shipeasy](https://shipeasy.ai) — **feature flags, dynamic configs, kill
+switches, A/B experiments, and metric tracking** for Swift. Two front doors:
+`configure()` + `Client(user)` on a **server** (server key), and
+`configureClient()` + `ShipeasyClient` in a **shipped iOS/macOS app** (public
+client key, persisted device anon id). Never embed a server key in an app bundle.
 
 > 📚 **Full documentation:** **<https://shipeasy-ai.github.io/sdk-swift/>** — also browsable under
 > [`docs/`](https://github.com/shipeasy-ai/sdk-swift/blob/main/docs). This README is generated from those docs.

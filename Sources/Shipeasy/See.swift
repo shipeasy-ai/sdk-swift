@@ -32,7 +32,7 @@ let SEE_MAX_PER_PROCESS = 25
 /// SDK version, single source for the `sdk_version` wire field. Bumped in lockstep
 /// with the `VERSION` file (SwiftPM publishes by git tag, so no compile-time read
 /// of `VERSION` exists — this constant IS the source the event reports).
-public let SDK_VERSION = "0.13.0"
+public let SDK_VERSION = "0.14.0"
 
 private let SEE_DEFAULT_SUBJECT = "app"
 private let SEE_DEFAULT_OUTCOME = "hit an error"

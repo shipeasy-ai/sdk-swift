@@ -63,6 +63,31 @@ The cookie is non-`HttpOnly` by design so the browser SDK buckets identically; a
 request with **no** unit still resolves a fully-rolled (100%) gate as on. Cookie
 name + format are a cross-SDK contract (see `18-identity-bucketing.md`).
 
+### Anonymous id in a mobile app (`AnonymousStore`)
+
+The cookie helpers above are for a **server** handler. A shipped app has no
+request cookie — `ShipeasyClient` (see [installation](installation.md#native-mobile-client--shipped-apps-shipeasyclient))
+instead **persists** the device's `__se_anon_id` so bucketing is stable across
+app launches. Without persistence a fresh UUID every cold start silently
+re-buckets every fractional rollout and experiment.
+
+By default the id lives in `UserDefaults` (`UserDefaultsAnonymousStore`). Supply
+your own `AnonymousStore` to back it with the Keychain (survives reinstalls), an
+app-group container (shared with extensions), or an in-memory map (tests):
+
+```swift
+struct KeychainAnonStore: AnonymousStore {
+    func get(_ key: String) -> String? { Keychain.read(key) }
+    func set(_ key: String, _ value: String) { Keychain.write(key, value) }
+}
+
+configureClient(clientKey: "pk_live_…", store: KeychainAnonStore())
+```
+
+`get`/`set` are synchronous and best-effort — a throwing or slow backing store
+degrades gracefully and never crashes a read. The stable id is readable as
+`await shipeasyClient()?.anonymousId`.
+
 ## Manual exposure
 
 `logExposure` is on the bound `Client` — record an experiment exposure explicitly

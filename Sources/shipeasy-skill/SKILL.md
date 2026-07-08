@@ -1,13 +1,41 @@
 ---
 name: shipeasy-swift
-description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Swift. Covers configure() + Client(user), getFlag/getConfig/getExperiment/getKillswitch, track, testing, see() error reporting. Server-side SwiftPM SDK (iOS 15+/macOS 12+).
+description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Swift. Covers configure() + Client(user) on servers, ShipeasyClient for shipped iOS/macOS apps, getFlag/getConfig/getExperiment/getKillswitch, track, testing, see() error reporting. SwiftPM SDK (iOS 15+/macOS 12+).
 ---
 
 # Shipeasy Swift SDK
 
-Server-side SDK (SwiftPM, iOS 15+/macOS 12+). Server-key only — never embed in a
-shipped app bundle. All evaluation methods are `async` (the engine is a Swift
-`actor`).
+SwiftPM SDK (iOS 15+/macOS 12+). Two front doors: **`configure()` + `Client(user)`**
+is the server SDK (server key, evaluates rules locally — never embed a server key
+in a shipped app); **`configureClient()` + `ShipeasyClient`** is the native
+client for shipped apps (public client key, server-side eval, persisted device
+anon id). All evaluation methods are `async` (the engine is a Swift `actor`).
+
+## Native mobile app? ShipeasyClient (client key)
+
+```swift
+import Shipeasy
+
+// Once at app launch — PUBLIC client key (pk_…), safe to embed:
+configureClient(clientKey: "pk_live_…")
+
+// Bind the user ([:] for logged-out; again on login). Persists the device
+// anonymous_id across launches so bucketing is stable on every cold start.
+await shipeasyClient()?.identify(["user_id": "u_123", "plan": "pro"])
+
+// Reads serve the cached /sdk/evaluate assignments (no per-call network):
+let on  = await shipeasyClient()?.getFlag("new_checkout") ?? false
+let exp = await shipeasyClient()?.getExperiment("checkout_button", defaultParams: nil)
+await shipeasyClient()?.logExposure("checkout_button")
+await shipeasyClient()?.track("purchase", properties: ["amount": 49])
+await shipeasyClient()?.reset()   // logout: keep device anon id, drop user_id
+```
+
+Custom anon-id persistence (Keychain / app group / tests): pass an
+`AnonymousStore` to `configureClient(clientKey:store:)`. Reference:
+<https://shipeasy-ai.github.io/sdk-swift/pages/installation.md>
+
+The rest of this skill covers the **server** SDK (`configure()` + `Client`).
 
 > The documented surface is exactly **`configure()`** (setup) and the bound
 > **`Client(user)`** (use), plus the package-level helpers below. For deeper docs,

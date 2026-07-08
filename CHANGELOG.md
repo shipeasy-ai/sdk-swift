@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.14.0 — 2026-07-08
+
+### Added
+
+- **Native mobile client (`ShipeasyClient`).** A first-class **client-key** SDK
+  for shipped iOS / macOS / tvOS / watchOS apps, alongside the existing
+  server-key `configure()` / `Client(user)` surface. It holds a **public client
+  key** (safe to embed in an app binary — a server key never is), evaluates a
+  single device user server-side over `POST /sdk/evaluate`, and caches the
+  returned assignments for cheap local reads. Front door:
+
+  ```swift
+  configureClient(clientKey: "pk_live_…")            // once, at app launch
+  await shipeasyClient()?.identify(["user_id": "u_123"])
+  let on = await shipeasyClient()?.getFlag("new_checkout") ?? false
+  ```
+
+  `ShipeasyClient` exposes `identify(_:)` / `reset()` / `refreshAssignments()`,
+  the reads `getFlag` / `getConfig` / `getExperiment` / `getKillswitch`, and
+  `track(_:properties:)` / `logExposure(_:)`.
+
+- **Persistent device `anonymous_id` (`AnonymousStore`).** The client resolves a
+  stable anonymous bucketing id once and **persists it across app launches**, so
+  a logged-out visitor buckets identically on every cold start (without this a
+  fresh UUID per launch silently re-buckets every fractional rollout and
+  experiment). Backed by `UserDefaults` by default; supply your own
+  `AnonymousStore` to use the Keychain, an app-group container, or an in-memory
+  map. Sticky-bucketing state returned by the edge is persisted and echoed back
+  on each evaluation.
+
 ## 0.13.0 — 2026-07-08
 
 ### Added
