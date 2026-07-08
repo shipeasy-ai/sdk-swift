@@ -127,7 +127,12 @@ public actor ShipeasyClient {
         self.privateAttributes = privateAttributes
         self.transport = transport ?? { req in
             let (data, response) = try await session.seData(for: req)
-            return (data, (response as? HTTPURLResponse) ?? HTTPURLResponse())
+            // corelibs-foundation (Linux) has no HTTPURLResponse() initializer,
+            // and a non-HTTP response is unusable anyway — surface it as an error.
+            guard let http = response as? HTTPURLResponse else {
+                throw URLError(.badServerResponse)
+            }
+            return (data, http)
         }
         // Resolve the stable device anon id: adopt the persisted one if valid,
         // else mint a fresh UUID and write it back for the next launch. This is
