@@ -24,6 +24,7 @@ The configure params, briefly:
 | `telemetryURL`      | Where telemetry POSTs go. |
 | `privateAttributes` | Attribute names usable for targeting but stripped from outbound `track()` payloads. See [advanced](advanced.md). |
 | `stickyStore`       | Optional `StickyBucketStore` to lock units to their first-assigned experiment variant. See [advanced](advanced.md). |
+| `logLevel`          | Verbosity of the SDK's own diagnostics: `.silent`, `.error`, `.warn` (default), `.info`, `.debug`. See below. |
 | `init`              | When `true` (default), kick off a one-shot fetch fire-and-forget so the first evaluation resolves against real rules. |
 | `poll`              | When `true`, run the initial fetch **and** a periodic background refresh (long-running servers). |
 
@@ -59,6 +60,29 @@ The poll lifecycle is owned internally — you never start, stop, or touch it
 yourself. To react to a poll bringing new data, register an `onChange` listener
 (see [advanced](advanced.md)). Everything after configuration — flags, configs,
 experiments, `track`, `logExposure` — happens through the bound `Client`.
+
+## Fail-safe reads & the `logLevel` option
+
+Every runtime read on the bound `Client` — `getFlag` / `getFlagDetail` /
+`getConfig` / `getKillswitch` / `getExperiment`, plus `track` / `logExposure` and
+the `see()` chain — is **fail-safe**: it is `async` and non-throwing, and on any
+problem (client not ready, key missing, a malformed rules blob) it returns a safe
+default rather than throwing or crashing. Your feature code never needs a
+`try`/`catch` around a read.
+
+Diagnostics for those swallowed problems go through a single leveled logger,
+tuned with `logLevel` (default `.warn`). Levels are ordered
+`silent < error < warn < info < debug`; a message is emitted only when the
+configured level is verbose enough to include it. Set `.silent` to mute the SDK's
+stderr output entirely, or `.debug` to surface fire-and-forget dispatch failures:
+
+```swift
+configure(apiKey: serverKey, logLevel: .silent) // no SDK log output
+```
+
+Setup calls are unaffected — `try Client(user)` before `configure(...)` still
+throws `NotConfiguredError`, and `configureForOffline` still throws on a bad
+source. Only the per-request reads are guaranteed non-throwing.
 
 ## Environment variables
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.12.0 — 2026-07-07
+
+Fail-safe runtime reads + a leveled `logLevel` option (uniform cross-SDK
+hardening, mirroring `@shipeasy/sdk`).
+
+### Added
+
+- **`LogLevel`** (`silent < error < warn < info < debug`) and a `logLevel:`
+  parameter on `configure(...)` and `Engine.init(...)` (default `.warn`). It sets
+  a process-global leveled logger that gates before writing to stderr; `.silent`
+  mutes the SDK's own diagnostics entirely. Logging is best-effort and never
+  throws or traps into caller code.
+
+### Changed
+
+- The two `see()`-before-a-client stderr writes now go through the leveled
+  logger, and the previously-silent fire-and-forget dispatch failures in
+  `track` / `logExposure` / `see()` are surfaced at `warn`.
+
+### Fixed
+
+- Hardened runtime reads against trapping on adversarial input: removed the
+  force-unwrap in `AnonId.resolve` (`raw!` after `isValid`) and the
+  `override!` force-unwrap in the SSR `cdnBase` helper. The bound `Client` reads
+  (`getFlag` / `getFlagDetail` / `getConfig` / `getKillswitch` / `getExperiment`)
+  and `track` / `logExposure` / `see()` remain `async`, non-throwing, and return
+  safe defaults for any malformed rules blob. Setup/lifecycle throwing behaviour
+  (`Client(_:)`, `configureForOffline`, `Engine.fromFile`, `initialize()`) is
+  unchanged.
+
 ## 0.11.1
 
 Linux build support (the SDK now compiles + tests on Linux, not just Apple).

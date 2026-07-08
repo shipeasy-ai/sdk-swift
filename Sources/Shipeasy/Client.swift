@@ -104,6 +104,11 @@ final class GlobalConfig: @unchecked Sendable {
 /// background poll can call `initialize()` on the returned engine instead (pass
 /// `init: false` here to avoid the redundant one-shot fetch).
 ///
+/// `logLevel` (default `.warn`) sets the process-global verbosity of the SDK's
+/// own diagnostic logging — `.silent` mutes it entirely. Runtime reads never
+/// throw or trap regardless of level; logging is a best-effort stderr side
+/// channel that can never surface into caller code.
+///
 /// All other parameters are forwarded straight to the `Engine` initializer.
 @discardableResult
 public func configure(
@@ -116,6 +121,7 @@ public func configure(
     telemetryURL: String = "https://t.shipeasy.ai",
     privateAttributes: [String] = [],
     stickyStore: StickyBucketStore? = nil,
+    logLevel: LogLevel = .warn,
     `init`: Bool = true,
     poll: Bool = false
 ) -> Engine {
@@ -128,7 +134,8 @@ public func configure(
             disableTelemetry: disableTelemetry,
             telemetryURL: telemetryURL,
             privateAttributes: privateAttributes,
-            stickyStore: stickyStore
+            stickyStore: stickyStore,
+            logLevel: logLevel
         )
     }, attributes)
     if fresh {

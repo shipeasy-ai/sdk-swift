@@ -67,8 +67,8 @@ public enum AnonId {
     /// freshly minted one.
     public static func resolve(cookieHeader: String?) -> Resolved {
         let raw = read(cookieHeader: cookieHeader)
-        if isValid(raw) {
-            return Resolved(id: raw!, minted: false)
+        if isValid(raw), let raw {
+            return Resolved(id: raw, minted: false)
         }
         return Resolved(id: mint(), minted: true)
     }

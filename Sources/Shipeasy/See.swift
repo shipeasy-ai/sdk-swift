@@ -32,7 +32,7 @@ let SEE_MAX_PER_PROCESS = 25
 /// SDK version, single source for the `sdk_version` wire field. Bumped in lockstep
 /// with the `VERSION` file (SwiftPM publishes by git tag, so no compile-time read
 /// of `VERSION` exists — this constant IS the source the event reports).
-public let SDK_VERSION = "0.11.1"
+public let SDK_VERSION = "0.12.0"
 
 private let SEE_DEFAULT_SUBJECT = "app"
 private let SEE_DEFAULT_OUTCOME = "hit an error"
@@ -334,7 +334,7 @@ public func setDefaultClient(_ client: Engine?) {
 /// a specific client.
 public func see(_ problem: Error) -> SeeChain {
     guard let c = DefaultClientBox.shared.get() else {
-        FileHandle.standardError.write(Data("[shipeasy] see() called before a client was created — error dropped\n".utf8))
+        Log.warn("see() called before a client was created — error dropped")
         return SeeChain(problem: .error(problem), client: nil)
     }
     return c.see(problem)
@@ -343,7 +343,7 @@ public func see(_ problem: Error) -> SeeChain {
 /// Report a non-exception problem via the default client.
 public func seeViolation(_ name: String) -> SeeChain {
     guard let c = DefaultClientBox.shared.get() else {
-        FileHandle.standardError.write(Data("[shipeasy] seeViolation() called before a client was created — error dropped\n".utf8))
+        Log.warn("seeViolation() called before a client was created — error dropped")
         return SeeChain(problem: .violation(Violation(name)), client: nil)
     }
     return c.seeViolation(name)

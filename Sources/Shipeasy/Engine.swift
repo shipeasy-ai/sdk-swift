@@ -73,6 +73,11 @@ public actor Engine {
     // env in its URL prefix; see() needs it as an explicit wire field.
     private let env: String
 
+    // Diagnostic verbosity for the SDK's own leveled logging. Stored for parity
+    // with the other server SDKs; the effective global level is set from init
+    // into the process-global `Log` (last engine wins).
+    private let logLevel: LogLevel
+
     // Per-process spam guard for see() error reports. Bound here so a hot loop
     // can't flood /collect (dedup window + hard cap; see SeeLimiter).
     private let seeLimiter = SeeLimiter()
@@ -101,7 +106,8 @@ public actor Engine {
         disableTelemetry: Bool = false,
         telemetryURL: String = "https://t.shipeasy.ai",
         privateAttributes: [String] = [],
-        stickyStore: StickyBucketStore? = nil
+        stickyStore: StickyBucketStore? = nil,
+        logLevel: LogLevel = .warn
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
@@ -110,6 +116,10 @@ public actor Engine {
         self.env = env
         self.privateAttributes = privateAttributes
         self.stickyStore = stickyStore
+        self.logLevel = logLevel
+        // Set the process-global leveled logger (last engine wins, matching the
+        // default-client wiring below).
+        Log.level = logLevel
         // Per-evaluation usage telemetry. ON by default; pass
         // disableTelemetry: true to opt out. See Telemetry.swift.
         self.telemetry = Telemetry(
@@ -132,6 +142,7 @@ public actor Engine {
         self.initialized = true
         self.privateAttributes = []
         self.stickyStore = nil
+        self.logLevel = .warn
         self.telemetry = Telemetry(
             endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
         )
@@ -163,6 +174,7 @@ public actor Engine {
         self.expsBlob = snapshotExperiments
         self.privateAttributes = []
         self.stickyStore = stickyStore
+        self.logLevel = .warn
         self.telemetry = Telemetry(
             endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
         )
@@ -468,7 +480,8 @@ public actor Engine {
     private static let defaultCDNBase = "https://cdn.shipeasy.ai"
 
     private static func cdnBase(_ override: String?) -> String {
-        var base = (override?.isEmpty == false) ? override! : defaultCDNBase
+        var base = defaultCDNBase
+        if let override, !override.isEmpty { base = override }
         while base.hasSuffix("/") { base.removeLast() }
         return base
     }
@@ -513,7 +526,10 @@ public actor Engine {
         if let safeProps, !safeProps.isEmpty { event["properties"] = safeProps }
         let body: [String: Any] = ["events": [event]]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
-        Task { try? await self.post("/collect", body: data) }
+        Task {
+            do { try await self.post("/collect", body: data) }
+            catch { Log.warn("track(\(eventName)) dispatch failed: \(error)") }
+        }
     }
 
     /// Emit an exposure event for an experiment at the server-side decision
@@ -535,7 +551,10 @@ public actor Engine {
         ]
         let body: [String: Any] = ["events": [event]]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
-        Task { try? await self.post("/collect", body: data) }
+        Task {
+            do { try await self.post("/collect", body: data) }
+            catch { Log.warn("logExposure(\(experiment)) dispatch failed: \(error)") }
+        }
     }
 
     // MARK: - see() structured error reporting
@@ -572,7 +591,10 @@ public actor Engine {
         }
         let body: [String: Any] = ["events": [ev]]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
-        Task { try? await self.post("/collect", body: data) }
+        Task {
+            do { try await self.post("/collect", body: data) }
+            catch { Log.warn("see() dispatch failed: \(error)") }
+        }
     }
 
     private func startPoll() {
