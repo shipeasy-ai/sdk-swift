@@ -25,6 +25,7 @@ The configure params, briefly:
 | `privateAttributes` | Attribute names usable for targeting but stripped from outbound `track()` payloads. See [advanced](advanced.md). |
 | `stickyStore`       | Optional `StickyBucketStore` to lock units to their first-assigned experiment variant. See [advanced](advanced.md). |
 | `logLevel`          | Verbosity of the SDK's own diagnostics: `.silent`, `.error`, `.warn` (default), `.info`, `.debug`. See below. |
+| `disableInternalErrorReporting` | Opt out of SDK self-monitoring (reporting the SDK's *own* internal errors to Shipeasy). Default `false` (on). See below. |
 | `init`              | When `true` (default), kick off a one-shot fetch fire-and-forget so the first evaluation resolves against real rules. |
 | `poll`              | When `true`, run the initial fetch **and** a periodic background refresh (long-running servers). |
 
@@ -83,6 +84,20 @@ configure(apiKey: serverKey, logLevel: .silent) // no SDK log output
 Setup calls are unaffected — `try Client(user)` before `configure(...)` still
 throws `NotConfiguredError`, and `configureForOffline` still throws on a bad
 source. Only the per-request reads are guaranteed non-throwing.
+
+### SDK self-monitoring
+
+When one of those last-resort guards swallows an **SDK-internal** failure — a bug
+on Shipeasy's side, not yours — the SDK also fire-and-forgets a report to
+Shipeasy's **own** project. This is a dedicated, baked-in destination, entirely
+separate from your own [`see()`](error-reporting.md) reporting: internal SDK
+errors never land in your project or Errors tab. The report is deduped and
+rate-limited, and can never slow down or break a read. It's on by default; opt
+out with `disableInternalErrorReporting`:
+
+```swift
+configure(apiKey: serverKey, disableInternalErrorReporting: true)
+```
 
 ## Environment variables
 

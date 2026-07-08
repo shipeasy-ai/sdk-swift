@@ -72,3 +72,24 @@ enum Log {
         FileHandle.standardError.write(Data(line.utf8))
     }
 }
+
+/// Run `fn` and return its value; if it throws, log at `error` and return
+/// `fallback`. The last-resort guard that makes a public runtime read
+/// (getFlagDetail / getConfig / getExperiment / getKillswitch) unable to throw an
+/// internal SDK failure into product code, even if an internal invariant is
+/// violated. `label` names the operation for the log line.
+///
+/// A caught error here is by definition "on our end" — an internal SDK failure,
+/// not the caller's — so in addition to logging locally it is reported to
+/// Shipeasy's own project via the self-monitoring channel (fire-and-forget,
+/// never throws; see InternalReport.swift). `label` doubles as the stable issue
+/// subject so occurrences of the same bug dedupe.
+func safeRun<T>(_ label: String, _ fallback: T, _ fn: () throws -> T) -> T {
+    do {
+        return try fn()
+    } catch {
+        Log.error("\(label) failed — returning safe default: \(error)")
+        reportInternalError(label, error)
+        return fallback
+    }
+}

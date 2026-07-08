@@ -109,6 +109,13 @@ final class GlobalConfig: @unchecked Sendable {
 /// throw or trap regardless of level; logging is a best-effort stderr side
 /// channel that can never surface into caller code.
 ///
+/// `disableInternalErrorReporting` (default `false`) opts out of the SDK's
+/// self-monitoring channel. When a last-resort internal guard swallows an
+/// SDK-internal failure (a bug on Shipeasy's side, not yours), the SDK also
+/// fire-and-forgets a report to Shipeasy's OWN project — a dedicated, baked-in
+/// destination entirely separate from your `see()` reporting, so internal errors
+/// never land in your project or Errors tab. Set this `true` to disable it.
+///
 /// All other parameters are forwarded straight to the `Engine` initializer.
 @discardableResult
 public func configure(
@@ -122,6 +129,7 @@ public func configure(
     privateAttributes: [String] = [],
     stickyStore: StickyBucketStore? = nil,
     logLevel: LogLevel = .warn,
+    disableInternalErrorReporting: Bool = false,
     `init`: Bool = true,
     poll: Bool = false
 ) -> Engine {
@@ -135,7 +143,8 @@ public func configure(
             telemetryURL: telemetryURL,
             privateAttributes: privateAttributes,
             stickyStore: stickyStore,
-            logLevel: logLevel
+            logLevel: logLevel,
+            disableInternalErrorReporting: disableInternalErrorReporting
         )
     }, attributes)
     if fresh {

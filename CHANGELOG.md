@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.13.0 — 2026-07-08
+
+### Added
+
+- **SDK self-monitoring for internal errors.** When one of the SDK's last-resort
+  guards (`safeRun`, wrapping the runtime reads `getFlag`/`getFlagDetail`/
+  `getConfig`/`getKillswitch`/`getExperiment`) swallows an internal failure — a
+  bug on Shipeasy's side, not the caller's — it now also reports that error to
+  Shipeasy's own project so we can track and fix SDK bugs across every app the
+  SDK runs in. This is a dedicated, baked-in destination (a public client-key
+  ingest credential), entirely separate from your `see()` reporting: internal
+  errors never land in your project or Errors tab. The report carries only the
+  error itself plus a stable, deduped consequence (subject = the guarded
+  operation, e.g. `flags.getDetail`) and is fire-and-forget — it can never slow
+  down or break a read. On by default; opt out with
+  `disableInternalErrorReporting: true` on `configure(apiKey:)`.
+
 ## 0.12.1 — 2026-07-07
 
 ### Fixed

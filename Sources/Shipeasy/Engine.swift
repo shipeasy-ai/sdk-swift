@@ -107,7 +107,8 @@ public actor Engine {
         telemetryURL: String = "https://t.shipeasy.ai",
         privateAttributes: [String] = [],
         stickyStore: StickyBucketStore? = nil,
-        logLevel: LogLevel = .warn
+        logLevel: LogLevel = .warn,
+        disableInternalErrorReporting: Bool = false
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
@@ -120,6 +121,13 @@ public actor Engine {
         // Set the process-global leveled logger (last engine wins, matching the
         // default-client wiring below).
         Log.level = logLevel
+        // Wire the internal self-monitoring channel (SDK-own-bug reporting to
+        // Shipeasy's own project). On by default; opt out with
+        // disableInternalErrorReporting. Inert until the ingest key is baked.
+        InternalReport.shared.setContext(
+            side: "server", sdkVersion: SDK_VERSION,
+            enabled: !disableInternalErrorReporting
+        )
         // Per-evaluation usage telemetry. ON by default; pass
         // disableTelemetry: true to opt out. See Telemetry.swift.
         self.telemetry = Telemetry(
@@ -146,6 +154,8 @@ public actor Engine {
         self.telemetry = Telemetry(
             endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
         )
+        // Local/test mode does no network: force the internal channel off.
+        InternalReport.shared.setContext(side: "server", sdkVersion: SDK_VERSION, enabled: false)
     }
 
     /// Build a no-network, immediately-usable client for tests. Telemetry is
@@ -178,6 +188,8 @@ public actor Engine {
         self.telemetry = Telemetry(
             endpoint: "", sdkKey: "", side: "server", env: "prod", disabled: true
         )
+        // Offline/snapshot mode does no network: force the internal channel off.
+        InternalReport.shared.setContext(side: "server", sdkVersion: SDK_VERSION, enabled: false)
     }
 
     /// Build an offline client from in-memory snapshot blobs (Feature D). `flags`
@@ -306,28 +318,33 @@ public actor Engine {
     /// The usage beacon is emitted exactly once here (steps 2–5), never on
     /// `OVERRIDE`.
     public func getFlagDetail(_ name: String, user: [String: Any]) -> FlagDetail {
-        // 1. Override wins, short-circuit before telemetry (matches getExperiment).
-        if let override = flagOverrides[name] {
-            return FlagDetail(value: override, reason: .override)
+        // Last-resort internal guard: any internal failure returns the documented
+        // safe default (CLIENT_NOT_READY / value:false) instead of throwing into
+        // product code, and self-reports to Shipeasy's own project. See safeRun.
+        safeRun("flags.getDetail", FlagDetail(value: false, reason: .clientNotReady)) {
+            // 1. Override wins, short-circuit before telemetry (matches getExperiment).
+            if let override = flagOverrides[name] {
+                return FlagDetail(value: override, reason: .override)
+            }
+            // Single telemetry beacon for the non-override path.
+            telemetry.emit("gate", name)
+            // 2. No live blob yet.
+            guard initialized, let flagsBlob else {
+                return FlagDetail(value: false, reason: .clientNotReady)
+            }
+            // 3. Gate not present in the blob.
+            let gates = flagsBlob["gates"] as? [String: Any]
+            guard let gate = gates?[name] as? [String: Any] else {
+                return FlagDetail(value: false, reason: .flagNotFound)
+            }
+            // 4. Gate disabled or killed (read the same fields evalGate reads).
+            if Eval.enabled(gate["killswitch"]) || !Eval.enabled(gate["enabled"]) {
+                return FlagDetail(value: false, reason: .off)
+            }
+            // 5. Real evaluation.
+            let result = Eval.evalGate(gate, user)
+            return FlagDetail(value: result, reason: result ? .ruleMatch : .default)
         }
-        // Single telemetry beacon for the non-override path.
-        telemetry.emit("gate", name)
-        // 2. No live blob yet.
-        guard initialized, let flagsBlob else {
-            return FlagDetail(value: false, reason: .clientNotReady)
-        }
-        // 3. Gate not present in the blob.
-        let gates = flagsBlob["gates"] as? [String: Any]
-        guard let gate = gates?[name] as? [String: Any] else {
-            return FlagDetail(value: false, reason: .flagNotFound)
-        }
-        // 4. Gate disabled or killed (read the same fields evalGate reads).
-        if Eval.enabled(gate["killswitch"]) || !Eval.enabled(gate["enabled"]) {
-            return FlagDetail(value: false, reason: .off)
-        }
-        // 5. Real evaluation.
-        let result = Eval.evalGate(gate, user)
-        return FlagDetail(value: result, reason: result ? .ruleMatch : .default)
     }
 
     public func getFlag(_ name: String, user: [String: Any]) -> Bool {
@@ -353,25 +370,29 @@ public actor Engine {
     /// (Feature A). An override always wins; an override pinned to `nil` returns
     /// `nil`, not the default.
     public func getConfig(_ name: String, default defaultValue: Any? = nil) -> Any? {
-        if configOverrides.keys.contains(name) { return configOverrides[name] ?? nil }
-        telemetry.emit("config", name)
-        let configs = flagsBlob?["configs"] as? [String: Any]
-        guard let entry = configs?[name] as? [String: Any] else { return defaultValue }
-        return entry["value"]
+        safeRun("flags.getConfig", defaultValue) {
+            if configOverrides.keys.contains(name) { return configOverrides[name] ?? nil }
+            telemetry.emit("config", name)
+            let configs = flagsBlob?["configs"] as? [String: Any]
+            guard let entry = configs?[name] as? [String: Any] else { return defaultValue }
+            return entry["value"]
+        }
     }
 
     public func getExperiment(_ name: String, user: [String: Any], defaultParams: Any?) -> ExperimentResult {
-        if let override = experimentOverrides[name] { return override }
-        telemetry.emit("experiment", name)
-        let exps = expsBlob?["experiments"] as? [String: Any]
-        let exp = exps?[name] as? [String: Any]
-        let r = Eval.evalExperiment(
-            exp, flagsBlob, expsBlob, user, name: name, stickyStore: stickyStore
-        )
-        if r.params == nil {
-            return ExperimentResult(inExperiment: r.inExperiment, group: r.group, params: defaultParams)
+        safeRun("flags.getExperiment", ExperimentResult(inExperiment: false, group: "control", params: defaultParams)) {
+            if let override = experimentOverrides[name] { return override }
+            telemetry.emit("experiment", name)
+            let exps = expsBlob?["experiments"] as? [String: Any]
+            let exp = exps?[name] as? [String: Any]
+            let r = Eval.evalExperiment(
+                exp, flagsBlob, expsBlob, user, name: name, stickyStore: stickyStore
+            )
+            if r.params == nil {
+                return ExperimentResult(inExperiment: r.inExperiment, group: r.group, params: defaultParams)
+            }
+            return r
         }
-        return r
     }
 
     /// Return whether kill switch `name` is engaged (the feature is killed). In
@@ -382,15 +403,17 @@ public actor Engine {
     /// switch's top-level value otherwise. Returns `false` (not killed) when the
     /// client isn't ready or the switch is absent.
     public func getKillswitch(_ name: String, switchKey: String? = nil) -> Bool {
-        let killswitches = flagsBlob?["killswitches"] as? [String: Any]
-        guard let entry = killswitches?[name] as? [String: Any] else { return false }
-        if let switchKey {
-            let switches = entry["switches"] as? [String: Any]
-            if let raw = switches?[switchKey] {
-                return Eval.enabled(raw)
+        safeRun("flags.getKillswitch", false) {
+            let killswitches = flagsBlob?["killswitches"] as? [String: Any]
+            guard let entry = killswitches?[name] as? [String: Any] else { return false }
+            if let switchKey {
+                let switches = entry["switches"] as? [String: Any]
+                if let raw = switches?[switchKey] {
+                    return Eval.enabled(raw)
+                }
             }
+            return Eval.enabled(entry["value"] ?? entry["enabled"])
         }
-        return Eval.enabled(entry["value"] ?? entry["enabled"])
     }
 
     /// Batch-evaluate every loaded gate, config and experiment for `user` into a
