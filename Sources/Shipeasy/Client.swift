@@ -114,7 +114,7 @@ final class GlobalConfig: @unchecked Sendable {
 public func configure(
     apiKey: String,
     attributes: AttributesFn? = nil,
-    baseURL: URL = URL(string: "https://edge.shipeasy.dev")!,
+    baseURL: URL = URL(string: "https://api.shipeasy.ai")!,
     session: URLSession = .shared,
     env: String = "prod",
     disableTelemetry: Bool = false,

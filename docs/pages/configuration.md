@@ -18,7 +18,7 @@ The configure params, briefly:
 | ------------------- | ------- |
 | `apiKey`            | Your **server** key. Required. |
 | `attributes`        | A transform mapping *your* user object → the Shipeasy attribute map. Default is identity. See below. |
-| `baseURL`           | The edge endpoint. Defaults to `https://edge.shipeasy.dev`. |
+| `baseURL`           | The edge endpoint. Defaults to `https://api.shipeasy.ai`. |
 | `env`               | Deployment env tag (`"prod"` by default); stamped onto `see()` error events. |
 | `disableTelemetry`  | Suppress outbound telemetry (`track` / exposures / `see()`). |
 | `telemetryURL`      | Where telemetry POSTs go. |

@@ -76,7 +76,7 @@ let on = await client.getFlag("new_checkout")
 | ------------------- | ------- | ------- |
 | `apiKey`            | —       | Your **server** key. Required. Pass it explicitly — there are no auto-read env vars. |
 | `attributes`        | identity | A transform mapping *your* user object → the Shipeasy attribute map. Runs once, in the `Client` constructor. See below. |
-| `baseURL`           | `https://edge.shipeasy.dev` | The edge endpoint. |
+| `baseURL`           | `https://api.shipeasy.ai` | The edge endpoint. |
 | `env`               | `"prod"` | Deployment env tag; stamped onto `see()` error events. |
 | `disableTelemetry`  | `false` | Suppress outbound telemetry (`track` / exposures / `see()`). |
 | `telemetryURL`      | `https://t.shipeasy.ai` | Where telemetry POSTs go. |

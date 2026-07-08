@@ -100,7 +100,7 @@ public actor Engine {
 
     public init(
         apiKey: String,
-        baseURL: URL = URL(string: "https://edge.shipeasy.dev")!,
+        baseURL: URL = URL(string: "https://api.shipeasy.ai")!,
         session: URLSession = .shared,
         env: String = "prod",
         disableTelemetry: Bool = false,
@@ -135,7 +135,7 @@ public actor Engine {
     // and telemetry is force-disabled (empty key/endpoint disables it anyway).
     private init(localMode: Bool) {
         self.apiKey = ""
-        self.baseURL = URL(string: "https://edge.shipeasy.dev")!
+        self.baseURL = URL(string: "https://api.shipeasy.ai")!
         self.session = .shared
         self.localMode = localMode
         self.env = "prod"
@@ -165,7 +165,7 @@ public actor Engine {
         stickyStore: StickyBucketStore? = nil
     ) {
         self.apiKey = ""
-        self.baseURL = URL(string: "https://edge.shipeasy.dev")!
+        self.baseURL = URL(string: "https://api.shipeasy.ai")!
         self.session = .shared
         self.localMode = true
         self.env = "prod"
