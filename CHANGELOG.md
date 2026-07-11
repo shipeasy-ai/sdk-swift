@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.2.0 — 2026-07-11
+
+### Added — local overrides on `ShipeasyClient`
+
+Force a flag, config, or experiment to a value at runtime, winning over the cached
+`/sdk/evaluate` assignments. Primarily for tests and the native devtools overlay,
+which drives them live over the React Native bridge so a forced variant takes
+effect without a reload. All are `async` (the client is an `actor`):
+
+- **Added** `ShipeasyClient.overrideFlag(_:_:)` — force `getFlag(name)` to a Bool.
+- **Added** `ShipeasyClient.overrideConfig(_:_:)` — force `getConfig(name)` to a
+  value; passing `nil` forces "absent" (the caller's default).
+- **Added** `ShipeasyClient.overrideExperiment(_:group:params:)` — force
+  `universe(u).assign()` to enrol the unit in `group`, with `params` layered over
+  the universe defaults. No exposure is logged.
+- **Added** `ShipeasyClient.removeOverride(kind:name:)`, `clearOverrides()`, and
+  `overridesSnapshot()` (the store, shaped for the devtools overlay).
+
+Overrides win over the cached assignment and skip telemetry/exposure — an explicit
+in-code (or devtools) decision. The experiment override requires the experiment to
+be known to the client (present in the cached assignments) so its owning universe
+is resolvable, matching the precedence in the other Shipeasy SDKs.
+
 ## 2.1.0 — 2026-07-08
 
 ### Added — environment-derived network & telemetry (egress) defaults

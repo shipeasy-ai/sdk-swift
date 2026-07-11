@@ -263,4 +263,92 @@ final class ClientModeTests: ShipeasyProdEnvTestCase {
         let sticky = lastBody?["sticky"] as? [String: Any]
         XCTAssertNotNil(sticky?["exp1"])
     }
+
+    // MARK: - Local overrides
+
+    func testOverrideFlagWinsOverCachedAssignment() async {
+        let store = MemStore()
+        let stub = StubTransport(evaluateResponse: [
+            "flags": ["new_ui": false], "configs": [:], "experiments": [:], "killswitches": [:],
+        ])
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
+        await client.identify(["user_id": "u1"])
+        // Cached value is false…
+        let before = await client.getFlag("new_ui")
+        XCTAssertFalse(before)
+        // …the override wins.
+        await client.overrideFlag("new_ui", true)
+        let forced = await client.getFlag("new_ui")
+        XCTAssertTrue(forced)
+        // clearOverrides restores the cached value.
+        await client.clearOverrides()
+        let restored = await client.getFlag("new_ui")
+        XCTAssertFalse(restored)
+    }
+
+    func testOverrideConfigWinsAndNilForcesAbsent() async {
+        let store = MemStore()
+        let stub = StubTransport(evaluateResponse: [
+            "flags": [:], "configs": ["theme": ["accent": "blue"]], "experiments": [:], "killswitches": [:],
+        ])
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
+        await client.identify(["user_id": "u1"])
+        await client.overrideConfig("theme", ["accent": "green"])
+        let forced = await client.getConfig("theme") as? [String: Any]
+        XCTAssertEqual(forced?["accent"] as? String, "green")
+        // nil override forces "absent" → the caller's default surfaces.
+        await client.overrideConfig("theme", nil)
+        let absent = await client.getConfig("theme", default: "fallback") as? String
+        XCTAssertEqual(absent, "fallback")
+    }
+
+    func testOverrideExperimentForcesVariantWithParamsAndNoExposure() async {
+        let store = MemStore([AnonId.cookie: "anon_x"])
+        let stub = StubTransport(evaluateResponse: [
+            "flags": [:], "configs": [:], "killswitches": [:],
+            "experiments": ["exp1": [
+                "inExperiment": false, "group": "control", "universe": "checkout",
+            ]],
+            "universes": ["checkout": ["defaults": ["headline": "Default", "cta": "Go"]]],
+        ])
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
+        await client.identify(["user_id": "u1"])
+        // Not enrolled before the override.
+        let control = await client.universe("checkout").assign()
+        XCTAssertFalse(control.enrolled)
+
+        // Force the treatment variant with its own param over the universe default.
+        await client.overrideExperiment("exp1", group: "treatment", params: ["headline": "Forced"])
+        let forced = await client.universe("checkout").assign()
+        XCTAssertTrue(forced.enrolled)
+        XCTAssertEqual(forced.group, "treatment")
+        // Forced param wins; the un-forced field falls back to the universe default.
+        XCTAssertEqual(forced.get("headline"), "Forced")
+        XCTAssertEqual(forced.get("cta"), "Go")
+
+        // No exposure was logged for the forced assignment.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        let exposures = stub.requestsFor("/collect").compactMap { bodyJSON($0) }
+            .compactMap { ($0["events"] as? [[String: Any]])?.first }
+            .filter { $0["type"] as? String == "exposure" }
+        XCTAssertTrue(exposures.isEmpty)
+    }
+
+    func testOverridesSnapshotReflectsTheStore() async {
+        let store = MemStore()
+        let stub = StubTransport(evaluateResponse: ["flags": [:], "configs": [:], "experiments": [:], "killswitches": [:]])
+        let client = ShipeasyClient(clientKey: "pk", isTrackingEnabled: false, store: store, transport: stub.transport)
+        await client.identify(["user_id": "u1"])
+        await client.overrideFlag("f", true)
+        await client.overrideConfig("c", ["a": 1])
+        await client.overrideExperiment("e", group: "variant_a", params: [:])
+        let snap = await client.overridesSnapshot()
+        XCTAssertEqual((snap["flags"] as? [String: Bool])?["f"], true)
+        XCTAssertNotNil((snap["configs"] as? [String: Any])?["c"])
+        XCTAssertEqual((snap["experiments"] as? [String: String])?["e"], "variant_a")
+        // removeOverride drops just one entry.
+        await client.removeOverride(kind: "flag", name: "f")
+        let snap2 = await client.overridesSnapshot()
+        XCTAssertNil((snap2["flags"] as? [String: Bool])?["f"])
+    }
 }

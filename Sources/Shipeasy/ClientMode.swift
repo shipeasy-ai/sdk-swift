@@ -104,6 +104,15 @@ public actor ShipeasyClient {
     private var sticky: [String: Any] = [:]
     private var ready = false
 
+    // Programmatic overrides (Statsig-style): force a flag / config / experiment to
+    // a value on the spot. They WIN over the cached `/sdk/evaluate` assignments and
+    // skip exposure logging — an explicit in-code (or devtools) decision. The native
+    // devtools overlay drives these live over the RN bridge, so a forced variant
+    // takes effect without a reload. Cleared by ``clearOverrides()``.
+    private var flagOverrides: [String: Bool] = [:]
+    private var configOverrides: [String: Any] = [:]
+    private var experimentOverrides: [String: ExperimentOverride] = [:]
+
     // Per-process spam guard for see() error reports so a hot loop can't flood
     // /collect (dedup window + hard cap; see SeeLimiter).
     private let seeLimiter = SeeLimiter()
@@ -233,6 +242,8 @@ public actor ShipeasyClient {
     /// The bound gate value, or `default` when the client hasn't evaluated yet
     /// or the gate is absent.
     public func getFlag(_ name: String, default defaultValue: Bool = false) -> Bool {
+        // A programmatic override wins and skips telemetry (an explicit decision).
+        if let ov = flagOverrides[name] { return ov }
         telemetry.emit("gate", name)
         guard ready else { return defaultValue }
         return flags[name] ?? defaultValue
@@ -240,6 +251,8 @@ public actor ShipeasyClient {
 
     /// The bound dynamic config value, or `default` when absent.
     public func getConfig(_ name: String, default defaultValue: Any? = nil) -> Any? {
+        // A programmatic override wins (a stored NSNull means "forced absent").
+        if let ov = configOverrides[name] { return ov is NSNull ? defaultValue : ov }
         telemetry.emit("config", name)
         guard ready, let v = configs[name] else { return defaultValue }
         return v is NSNull ? nil : v
@@ -277,6 +290,18 @@ public actor ShipeasyClient {
     func assignUniverse(_ name: String, logExposure: Bool) -> Assignment {
         telemetry.emit("experiment", name)
         let defaults = universes[name] ?? [:]
+        // A programmatic override wins: if an overridden experiment maps to this
+        // universe, force its variant with `params` layered over the universe
+        // defaults, and skip exposure logging. The experiment must be known (present
+        // in the cached assignments) so its owning universe is resolvable — matching
+        // the other SDKs' override precedence.
+        for (expName, ov) in experimentOverrides where experiments[expName]?.universe == name {
+            return Assignment(
+                name: expName,
+                group: ov.group,
+                params: defaults.merging(ov.params) { _, forced in forced }
+            )
+        }
         guard ready else { return Assignment(name: nil, group: nil, params: defaults) }
         for (expName, entry) in experiments where entry.universe == name && entry.inExperiment {
             if logExposure { emitExposure(experiment: expName, group: entry.group) }
@@ -297,6 +322,63 @@ public actor ShipeasyClient {
             return Eval.enabled(map["value"] ?? map["enabled"])
         }
         return Eval.enabled(entry)
+    }
+
+    // MARK: - Local overrides
+    //
+    // Force a flag / config / experiment to a value on the spot, winning over the
+    // cached `/sdk/evaluate` assignments. Primarily for tests and the native
+    // devtools overlay (which drives them live over the RN bridge). Reads are
+    // `async` because the client is an `actor`, so the setters are too.
+
+    /// Force ``getFlag(_:default:)`` to return `value`, ignoring the cached
+    /// assignment. Persists until ``clearOverrides()`` (or ``removeOverride(kind:name:)``).
+    public func overrideFlag(_ name: String, _ value: Bool) {
+        flagOverrides[name] = value
+    }
+
+    /// Force ``getConfig(_:default:)`` to return `value`. Passing `nil` forces the
+    /// config to read as absent (the caller's default), distinct from having no
+    /// override at all.
+    public func overrideConfig(_ name: String, _ value: Any?) {
+        configOverrides[name] = value ?? NSNull()
+    }
+
+    /// Force ``universe(_:)``'s `assign()` to enrol the unit in `group` for the
+    /// experiment `name`, with `params` layered over the universe defaults. No
+    /// exposure is logged. The experiment must be known to the client (present in
+    /// the cached assignments) so its owning universe is resolvable.
+    public func overrideExperiment(_ name: String, group: String, params: [String: Any] = [:]) {
+        experimentOverrides[name] = ExperimentOverride(group: group, params: params)
+    }
+
+    /// Remove a single override. `kind` is `"flag"`, `"config"`, or `"experiment"`.
+    public func removeOverride(kind: String, name: String) {
+        switch kind {
+        case "flag": flagOverrides[name] = nil
+        case "config": configOverrides[name] = nil
+        default: experimentOverrides[name] = nil
+        }
+    }
+
+    /// Drop every programmatic override set via the `override*` methods.
+    public func clearOverrides() {
+        flagOverrides.removeAll()
+        configOverrides.removeAll()
+        experimentOverrides.removeAll()
+    }
+
+    /// A snapshot of the current override store, shaped for the devtools overlay:
+    /// `flags` (name → Bool), `configs` (name → value), `experiments` (name →
+    /// forced group). A forced-absent config surfaces as `NSNull`.
+    public func overridesSnapshot() -> [String: Any] {
+        var experimentGroups: [String: String] = [:]
+        for (name, ov) in experimentOverrides { experimentGroups[name] = ov.group }
+        return [
+            "flags": flagOverrides,
+            "configs": configOverrides,
+            "experiments": experimentGroups,
+        ]
     }
 
     // MARK: - Events

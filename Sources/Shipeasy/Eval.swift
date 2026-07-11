@@ -50,6 +50,16 @@ struct CachedExperiment: Sendable {
     let universe: String?
 }
 
+/// A programmatic experiment override: force `universe(...).assign()` to enrol the
+/// unit in `group`, with `params` layered over the universe defaults. Set via
+/// ``ShipeasyClient/overrideExperiment(_:group:params:)`` and cleared by
+/// ``ShipeasyClient/clearOverrides()``. Actor-isolated state, so it needn't be
+/// `Sendable`.
+struct ExperimentOverride {
+    let group: String
+    let params: [String: Any]
+}
+
 // The client evaluates nothing locally (the edge owns evaluation over
 // `/sdk/evaluate`); it only needs to coerce the loosely-typed values the edge
 // returns for flags and kill switches into a `Bool`.

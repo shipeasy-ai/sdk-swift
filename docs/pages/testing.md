@@ -96,6 +96,39 @@ read returns the supplied default (`getFlag` → `false`/your default, `getConfi
 patterns in
 `Tests/ShipeasyTests/ClientModeTests.swift` and `Tests/ShipeasyTests/SeeTests.swift`.
 
+## Local overrides
+
+Force a flag, config, or experiment to a value at runtime — winning over whatever
+`/sdk/evaluate` returned — with the `override*` methods on `ShipeasyClient`. They
+are the fastest way to pin a value in a test (no transport stub needed for that
+one key), and they back the native devtools overlay, which drives them live so a
+forced variant takes effect without a reload. All are `async` (the client is an
+`actor`):
+
+```swift
+let client = shipeasyClient()!            // or the client you built in a test
+
+await client.overrideFlag("new_ui", true)                    // getFlag → true
+await client.overrideConfig("theme", ["accent": "green"])    // getConfig → that value
+await client.overrideConfig("theme", nil)                    // force "absent" → your default
+await client.overrideExperiment(                             // force a variant…
+    "checkout_copy", group: "treatment",
+    params: ["headline": "Forced"]                           // …params layer over universe defaults
+)
+
+let on = await client.getFlag("new_ui")                      // true, from the override
+let a  = await client.universe("checkout").assign()          // enrolled in "treatment", no exposure logged
+
+await client.removeOverride(kind: "flag", name: "new_ui")    // drop one
+await client.clearOverrides()                                // drop them all
+```
+
+Overrides win over the cached assignment and skip telemetry/exposure — an explicit
+in-code decision. `overrideExperiment` requires the experiment to be **known to the
+client** (present in the cached assignments) so its owning universe is resolvable;
+`overridesSnapshot()` returns the current store (`flags` / `configs` /
+`experiments` → forced group) for tooling.
+
 ## Resetting global state
 
 If a test path went through `configureClient(...)`, drop the process-global client

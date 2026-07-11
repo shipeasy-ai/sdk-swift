@@ -117,6 +117,19 @@ _ = await client.getFlag("new_ui", default: false)   // true
 
 Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/testing.md>
 
+### Local overrides
+
+Force a value at runtime (tests + the native devtools overlay), winning over the
+cached assignment and skipping telemetry/exposure. All `async`:
+
+```swift
+await client.overrideFlag("new_ui", true)                      // getFlag → true
+await client.overrideConfig("theme", ["accent": "green"])      // getConfig → value; nil forces "absent"
+await client.overrideExperiment("checkout", group: "treatment", // force a variant…
+                                params: ["headline": "Forced"]) // …params layer over universe defaults
+await client.clearOverrides()                                  // or removeOverride(kind:name:)
+```
+
 ## Error reporting — see()
 
 ```swift
