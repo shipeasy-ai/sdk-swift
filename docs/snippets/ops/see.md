@@ -22,9 +22,13 @@ do {
 do {
     try charge(order)
 } catch {
-    // .extras(dict)         structured fields attached to the report
+    // .extras(dict)         structured fields attached to the report; call it
+    //                       BEFORE .to, or pass inline as .to(outcome, extras:).
     //                       (private attributes are stripped before egress)
     see(error).causesThe("checkout").extras(["order_id": orderId]).to("use cached prices")
+
+    // equivalent — extras folded into the terminal, no ordering to remember:
+    see(error).causesThe("checkout").to("use cached prices", extras: ["order_id": orderId])
 }
 ```
 

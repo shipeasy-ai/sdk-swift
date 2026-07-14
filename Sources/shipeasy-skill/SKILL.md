@@ -137,14 +137,17 @@ do {
     try chargeCard(order)
 } catch {
     see(error).causesThe("checkout").to("use cached prices")
+    // extras before .to, or folded inline (no ordering to remember):
+    see(error).causesThe("checkout").to("use cached prices", extras: ["order_id": order.id])
 }
 
 seeViolation("large query").causesThe("search results").to("be trimmed")
 controlFlowException(error).because("expected — token expiry is normal") // reports nothing
 ```
 
-`to(_:)` is the terminal (nothing sends without it). Package-level `see(_:)` /
-`seeViolation(_:)` dispatch through the configured client (side `"client"`).
+`to(_:)` is the terminal (nothing sends without it); `to(_:extras:)` folds extras
+in like a final `.extras(...)`. Package-level `see(_:)` / `seeViolation(_:)`
+dispatch through the configured client (side `"client"`).
 Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/error-reporting.md> ·
 snippet <https://shipeasy-ai.github.io/sdk-swift/snippets/ops/see.md>
 

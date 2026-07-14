@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.0 — 2026-07-13
+
+### Added — inline extras on `see(...).to(_:extras:)`
+
+- **Added** `SeeChain.to(_:extras:)` — the terminal now takes the extras inline,
+  e.g. `see(error).causesThe("checkout").to("use cached prices", extras: ["order_id": oid])`.
+  Equivalent to a final `.extras(...)`; it folds under any earlier `.extras`
+  (later wins on a shared key), so there is no longer an order to remember. The
+  merge happens synchronously on the calling side before the actor hop, exactly
+  like `.extras(...)`. The plain `to("outcome")` form is unchanged (the new
+  parameter defaults to `nil`).
+
 ## 2.2.0 — 2026-07-11
 
 ### Added — local overrides on `ShipeasyClient`

@@ -26,6 +26,14 @@ do {
 }
 ```
 
+You can also fold the extras into the terminal as `to(_:extras:)`, so there is no
+ordering to remember — the inline extras merge like a final `.extras(...)` (later
+wins on a shared key):
+
+```swift
+see(error).causesThe("checkout").to("use cached prices", extras: ["order_id": order.id])
+```
+
 If `see()` is called before `configureClient(...)` has run, the error is dropped
 (with a note to stderr).
 

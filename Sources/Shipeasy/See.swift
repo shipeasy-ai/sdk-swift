@@ -15,10 +15,11 @@ import Foundation
 // Dispatch model (differs from the TS microtask): `to(_:)` is the terminal — it
 // builds the wire event and fire-and-forgets the POST to `/collect`.
 // `causesThe(_:)` and `extras(_:)` are chainable setters that may be called in
-// any order *before* `to(_:)`. `ShipeasyClient` is an `actor`, so the chain is a
-// plain (non-isolated) `final class` that captures the client and accumulates
-// state synchronously; `to(_:)` hops onto the actor via a detached `Task` to
-// dispatch.
+// any order *before* `to(_:)`; `to(_:)` also accepts the extras inline as
+// `.to("outcome", extras: [...])`, so there is no ordering to remember.
+// `ShipeasyClient` is an `actor`, so the chain is a plain (non-isolated) `final
+// class` that captures the client and accumulates state synchronously; `to(_:)`
+// hops onto the actor via a detached `Task` to dispatch.
 
 // MARK: Limits (mirror core.ts; kept in sync with the worker's /collect)
 
@@ -33,7 +34,7 @@ let SEE_MAX_PER_PROCESS = 25
 /// SDK version, single source for the `sdk_version` wire field. Bumped in lockstep
 /// with the `VERSION` file (SwiftPM publishes by git tag, so no compile-time read
 /// of `VERSION` exists — this constant IS the source the event reports).
-public let SDK_VERSION = "2.2.0"
+public let SDK_VERSION = "2.3.0"
 
 private let SEE_DEFAULT_SUBJECT = "app"
 private let SEE_DEFAULT_OUTCOME = "hit an error"
@@ -257,8 +258,20 @@ public final class SeeChain {
 
     /// Terminal: build the event and fire-and-forget the report. Idempotent —
     /// calling twice is a no-op. Never throws into caller code.
-    public func to(_ outcome: String) {
+    ///
+    /// `extras` may be passed inline here as the trailing form
+    /// `.to("outcome", extras: ["order_id": oid])` — merged like a final
+    /// `.extras(...)` call (folds under any earlier `.extras`, later wins), so
+    /// there is no ordering to remember. The merge happens synchronously on the
+    /// calling side before the actor hop, exactly like `.extras(...)`.
+    public func to(_ outcome: String, extras: [String: Any]? = nil) {
         if done { return }
+        // Fold inline extras in before the hop, same as a final `.extras(...)`.
+        if let extras, !extras.isEmpty {
+            var merged = self.extras ?? [:]
+            for (k, v) in extras { merged[k] = v }
+            self.extras = merged
+        }
         done = true
         self.outcome = outcome
         guard let client else { return }
@@ -266,7 +279,7 @@ public final class SeeChain {
             problem: problem,
             subject: subject ?? SEE_DEFAULT_SUBJECT,
             outcome: outcome.isEmpty ? SEE_DEFAULT_OUTCOME : outcome,
-            extras: extras
+            extras: self.extras
         )
         Task { await client._dispatchSee(built) }
     }

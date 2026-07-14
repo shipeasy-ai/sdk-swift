@@ -88,6 +88,22 @@ final class SeeTests: ShipeasyProdEnvTestCase {
         XCTAssertNil(extras?["skip"])
     }
 
+    func testInlineExtrasOnToMergeOverPriorExtras() async {
+        let events = await withClient(expectEvents: 1) { c in
+            c.see(Boom(description: "x")).causesThe("checkout")
+                .extras(["order_id": "o1", "region": "eu"])
+                // Inline extras fold under the earlier .extras — later wins on a
+                // shared key ("region"), and adds a new one ("attempt").
+                .to("use cached prices", extras: ["region": "us", "attempt": 2])
+        }
+        let ev = events[0]
+        XCTAssertEqual(ev["outcome"] as? String, "use cached prices")
+        let extras = ev["extras"] as? [String: Any]
+        XCTAssertEqual(extras?["order_id"] as? String, "o1")   // untouched
+        XCTAssertEqual(extras?["region"] as? String, "us")     // inline wins
+        XCTAssertEqual((extras?["attempt"] as? NSNumber)?.intValue, 2) // added
+    }
+
     func testViolationUsesViolationKind() async {
         let events = await withClient(expectEvents: 1) { c in
             c.seeViolation("large query").causesThe("search results").to("be trimmed")
