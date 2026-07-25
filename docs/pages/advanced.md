@@ -71,12 +71,21 @@ await shipeasyClient()?.refreshAssignments()
 For an identity change (login) use `identify(...)`; for logout use `reset()`. See
 [configuration](configuration.md).
 
-## Manual exposure
+## Exposure control
 
-`logExposure` records an experiment exposure explicitly at the point you present
-the variant, rather than relying on `getExperiment` alone. It re-evaluates and only
-emits when the device user is enrolled — a no-op otherwise:
+There is no `logExposure` call — `assign()` auto-logs the single exposure when
+the device user is enrolled. To assign *without* counting an exposure (you want
+to inspect the group but aren't presenting the variant yet), pass
+`logExposure: false`, then assign again with logging on at the point you actually
+render it:
 
 ```swift
-await shipeasyClient()?.logExposure("checkout_button")
+// Inspect the assignment without counting it as seen:
+let peek = await shipeasyClient()?.universe("checkout").assign(logExposure: false)
+
+// …at the moment you present the variant, assign normally to log the exposure:
+let a = await shipeasyClient()?.universe("checkout").assign()
 ```
+
+The exposure is fire-and-forget, deduped, and a no-op when the unit isn't
+enrolled or telemetry is disabled. See [experiments](experiments.md).

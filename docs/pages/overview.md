@@ -45,8 +45,9 @@ fractional rollout and experiment on every launch. See
 | `shipeasyClient()`         | Fetch the configured client (`ShipeasyClient?`), or `nil` if `configureClient` hasn't run. |
 | `client.identify(_:)`      | Bind the device user + refresh assignments over `/sdk/evaluate`. Call at launch, on login, and whenever targeting attributes change. |
 | `client.reset()`           | Logout: clear `user_id`, keep the device `anonymous_id`, re-evaluate as anonymous. |
-| `client.getFlag/getConfig/getExperiment/getKillswitch` | Cached reads for the current user. |
-| `client.track(_:properties:)` / `client.logExposure(_:)` | Conversion + exposure telemetry (fire-and-forget). |
+| `client.getFlag/getConfig/getKillswitch` | Cached reads for the current user. |
+| `client.universe(_:).assign()` | Assign the user within a universe (a mutual-exclusion pool — the user lands in at most one of its experiments) and read the resolved params. Auto-logs one exposure when enrolled. |
+| `client.track(_:properties:)` | Conversion telemetry (fire-and-forget). |
 | `see(_:)` family           | Structured error reporting. See [error-reporting](error-reporting.md). |
 
 ## Pages
@@ -56,7 +57,7 @@ fractional rollout and experiment on every launch. See
 - [flags](flags.md) — `getFlag`, defaults.
 - [configs](configs.md) — `getConfig`, defaults, typed reads.
 - [killswitches](killswitches.md) — `getKillswitch` + named override switches.
-- [experiments](experiments.md) — `getExperiment`, `ExperimentResult`, `track`, `logExposure`.
+- [experiments](experiments.md) — `universe(_:).assign()`, `Assignment`, `track`.
 - [i18n](i18n.md) — not part of the native client SDK.
 - [error-reporting](error-reporting.md) — `see()` structured error reporting.
 - [testing](testing.md) — hermetic tests with an in-memory store + a stub transport.
