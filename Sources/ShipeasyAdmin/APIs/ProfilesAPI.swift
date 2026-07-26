@@ -68,7 +68,7 @@ open class ProfilesAPI {
     /**
      List i18n profiles
      - GET /api/admin/i18n/profiles
-     - Returns every locale profile in the project (e.g. `en:prod`, `fr:prod`).  **Use case:** Discover which locale profiles exist before pushing keys or publishing a chunk.
+     - Returns every locale profile in the project (e.g. `en:prod`, `fr:prod`).  **Use case:** Discover which locale profiles exist before pushing keys or publishing.
      - Bearer Token:
        - type: http
        - name: bearerSdkKey
@@ -109,7 +109,7 @@ open class ProfilesAPI {
     /**
      Publish a profile live
      - POST /api/admin/i18n/profiles/{profileId}/publish
-     - Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the optional `chunk` in the body is an audit label only (it does not scope what ships).  **Use case:** Ship the latest translations live after pushing/updating keys.
+     - Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the body takes no options.  **Use case:** Ship the latest translations live after pushing/updating keys.
      - Bearer Token:
        - type: http
        - name: bearerSdkKey

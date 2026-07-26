@@ -25,21 +25,18 @@ public struct ListI18nKeysResponseKeysInner: Codable, JSONEncodable {
     public var variables: [String]?
     /** Owning profile id. */
     public var profileId: String?
-    /** Owning chunk (authoring grouping) id. */
-    public var chunkId: String?
     /** ISO-8601 timestamp of the last edit. */
     public var updatedAt: String?
     /** Actor email that last edited the key. */
     public var updatedBy: String?
 
-    public init(id: String, key: String, value: String, description: String? = nil, variables: [String]? = nil, profileId: String? = nil, chunkId: String? = nil, updatedAt: String? = nil, updatedBy: String? = nil) {
+    public init(id: String, key: String, value: String, description: String? = nil, variables: [String]? = nil, profileId: String? = nil, updatedAt: String? = nil, updatedBy: String? = nil) {
         self.id = id
         self.key = key
         self.value = value
         self.description = description
         self.variables = variables
         self.profileId = profileId
-        self.chunkId = chunkId
         self.updatedAt = updatedAt
         self.updatedBy = updatedBy
     }
@@ -51,7 +48,6 @@ public struct ListI18nKeysResponseKeysInner: Codable, JSONEncodable {
         case description
         case variables
         case profileId
-        case chunkId
         case updatedAt
         case updatedBy
     }
@@ -81,7 +77,6 @@ public struct ListI18nKeysResponseKeysInner: Codable, JSONEncodable {
         try container.encodeIfPresent(description, forKey: .description)
         try container.encodeIfPresent(variables, forKey: .variables)
         try container.encodeIfPresent(profileId, forKey: .profileId)
-        try container.encodeIfPresent(chunkId, forKey: .chunkId)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(updatedBy, forKey: .updatedBy)
         var additionalPropertiesContainer = encoder.container(keyedBy: String.self)
@@ -99,7 +94,6 @@ public struct ListI18nKeysResponseKeysInner: Codable, JSONEncodable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         variables = try container.decodeIfPresent([String].self, forKey: .variables)
         profileId = try container.decodeIfPresent(String.self, forKey: .profileId)
-        chunkId = try container.decodeIfPresent(String.self, forKey: .chunkId)
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
         updatedBy = try container.decodeIfPresent(String.self, forKey: .updatedBy)
         var nonAdditionalPropertyKeys = Set<String>()
@@ -109,7 +103,6 @@ public struct ListI18nKeysResponseKeysInner: Codable, JSONEncodable {
         nonAdditionalPropertyKeys.insert("description")
         nonAdditionalPropertyKeys.insert("variables")
         nonAdditionalPropertyKeys.insert("profileId")
-        nonAdditionalPropertyKeys.insert("chunkId")
         nonAdditionalPropertyKeys.insert("updatedAt")
         nonAdditionalPropertyKeys.insert("updatedBy")
         let additionalPropertiesContainer = try decoder.container(keyedBy: String.self)

@@ -12,25 +12,19 @@ import AnyCodable
 
 /** Body for &#x60;POST /api/admin/i18n/keys&#x60;. Insert-only: keys that already exist are never overwritten — use &#x60;PUT /keys/{id}&#x60; to change a value. */
 public struct PushI18nKeysRequest: Codable, JSONEncodable {
-
-    public static let chunkRule = StringRule(minLength: 1, maxLength: 64, pattern: nil)
     public static let keysRule = ArrayRule(minItems: 1, maxItems: 5000, uniqueItems: false)
     /** Target profile id to add keys to. */
     public var profileId: UUID
-    /** Logical grouping the new keys are filed under. Defaults to `default`. */
-    public var chunk: String? = "default"
     /** Keys to add. Insert-only — existing keys are reported back as `skipped`. */
     public var keys: [PushI18nKeysRequestKeysInner]
 
-    public init(profileId: UUID, chunk: String? = "default", keys: [PushI18nKeysRequestKeysInner]) {
+    public init(profileId: UUID, keys: [PushI18nKeysRequestKeysInner]) {
         self.profileId = profileId
-        self.chunk = chunk
         self.keys = keys
     }
 
     public enum CodingKeys: String, CodingKey, CaseIterable {
         case profileId = "profile_id"
-        case chunk
         case keys
     }
 
@@ -39,7 +33,6 @@ public struct PushI18nKeysRequest: Codable, JSONEncodable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(profileId, forKey: .profileId)
-        try container.encodeIfPresent(chunk, forKey: .chunk)
         try container.encode(keys, forKey: .keys)
     }
 }

@@ -22,8 +22,6 @@ public struct PublishI18nProfileResponse: Codable, JSONEncodable {
     public var ok: Bool
     /** Profile that was published. */
     public var profileId: String
-    /** Audit chunk label, or `null` when none was given. */
-    public var chunk: String?
     /** ISO-8601 timestamp of the publish. */
     public var publishedAt: String
     /** New KV snapshot version that was shipped. */
@@ -39,10 +37,9 @@ public struct PublishI18nProfileResponse: Codable, JSONEncodable {
     /** Human-readable caveat when the publish landed but is not fully live. */
     public var warning: String?
 
-    public init(ok: Bool, profileId: String, chunk: String?, publishedAt: String, version: String, keyCount: Double, changed: Bool, purged: Purged, kvVerified: Bool, warning: String? = nil) {
+    public init(ok: Bool, profileId: String, publishedAt: String, version: String, keyCount: Double, changed: Bool, purged: Purged, kvVerified: Bool, warning: String? = nil) {
         self.ok = ok
         self.profileId = profileId
-        self.chunk = chunk
         self.publishedAt = publishedAt
         self.version = version
         self.keyCount = keyCount
@@ -55,7 +52,6 @@ public struct PublishI18nProfileResponse: Codable, JSONEncodable {
     public enum CodingKeys: String, CodingKey, CaseIterable {
         case ok
         case profileId = "profile_id"
-        case chunk
         case publishedAt = "published_at"
         case version
         case keyCount = "key_count"
@@ -71,7 +67,6 @@ public struct PublishI18nProfileResponse: Codable, JSONEncodable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(ok, forKey: .ok)
         try container.encode(profileId, forKey: .profileId)
-        try container.encode(chunk, forKey: .chunk)
         try container.encode(publishedAt, forKey: .publishedAt)
         try container.encode(version, forKey: .version)
         try container.encode(keyCount, forKey: .keyCount)

@@ -10,25 +10,18 @@ import Foundation
 import AnyCodable
 #endif
 
-/** Body for &#x60;POST /api/admin/i18n/profiles/{profileId}/publish&#x60;. The &#x60;chunk&#x60; is an audit label only. */
+/** Body for &#x60;POST /api/admin/i18n/profiles/{profileId}/publish&#x60;. Publishing is profile-wide — the whole profile is snapshotted into one KV blob — so the body takes no options. */
 public struct PublishI18nProfileRequest: Codable, JSONEncodable {
 
-    /** Optional chunk label to stamp on the audit log. Publishing is profile-wide regardless — the whole profile is snapshotted into one KV blob. */
-    public var chunk: String?
-
-    public init(chunk: String? = nil) {
-        self.chunk = chunk
+    public init() {
     }
 
-    public enum CodingKeys: String, CodingKey, CaseIterable {
-        case chunk
+    public enum CodingKeys: CodingKey, CaseIterable {
     }
 
     // Encodable protocol methods
 
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encodeIfPresent(chunk, forKey: .chunk)
+        _ = encoder.container(keyedBy: CodingKeys.self)
     }
 }
-

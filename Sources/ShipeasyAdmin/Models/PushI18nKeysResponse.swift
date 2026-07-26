@@ -21,15 +21,12 @@ public struct PushI18nKeysResponse: Codable, JSONEncodable {
     public var pushedCount: Double
     /** Number of keys skipped (== `skipped.length`). */
     public var skippedCount: Double
-    /** The chunk the keys were filed under. */
-    public var chunk: String?
 
-    public init(added: [String], skipped: [String], pushedCount: Double, skippedCount: Double, chunk: String? = nil) {
+    public init(added: [String], skipped: [String], pushedCount: Double, skippedCount: Double, ) {
         self.added = added
         self.skipped = skipped
         self.pushedCount = pushedCount
         self.skippedCount = skippedCount
-        self.chunk = chunk
     }
 
     public enum CodingKeys: String, CodingKey, CaseIterable {
@@ -37,7 +34,6 @@ public struct PushI18nKeysResponse: Codable, JSONEncodable {
         case skipped
         case pushedCount = "pushed_count"
         case skippedCount = "skipped_count"
-        case chunk
     }
 
     // Encodable protocol methods
@@ -48,7 +44,6 @@ public struct PushI18nKeysResponse: Codable, JSONEncodable {
         try container.encode(skipped, forKey: .skipped)
         try container.encode(pushedCount, forKey: .pushedCount)
         try container.encode(skippedCount, forKey: .skippedCount)
-        try container.encodeIfPresent(chunk, forKey: .chunk)
     }
 }
 
