@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.0.0 — 2026-07-27
+
+### BREAKING: `ShipeasyAdmin` drops the i18n `chunk` concept
+
+Publishing is profile-wide — the whole profile is snapshotted into one KV blob —
+so `chunk` never scoped what actually shipped. The admin client is regenerated
+against the spec that removes it: `chunkId` is gone from key rows, `chunk` is
+gone from the push request, and `publishI18nProfile` loses its chunk-only typed
+body.
+
+This is a breaking change to the **`ShipeasyAdmin` library product only**. The
+`Shipeasy` product — `configureClient`, `ShipeasyClient`, flag/config/killswitch
+reads, `universe(_:).assign()`, `track`, and `see()` — is untouched. If you only
+`import Shipeasy`, nothing changes for you.
+
+### Docs: where `see()` extras go in the chain
+
+`causesThe(subject)` and `to(outcome)` are two halves of one sentence, so the
+docs no longer teach `causesThe(x).extras([...]).to(y)` — wedging the debug
+payload between the subject and the outcome splits the consequence in half and
+is hard to read. That shape is now a documented hard ban.
+
+`to(_:)` returns `Void`, so extras cannot trail the terminal in Swift: pass them
+inline as `to(_:extras:)`. Docs, snippet and the bundled skill updated to match.
+
 ## 2.3.0 — 2026-07-13
 
 ### Added — inline extras on `see(...).to(_:extras:)`
