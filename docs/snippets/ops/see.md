@@ -16,19 +16,23 @@ do {
 }
 ```
 
-### Attach context with `.extras(...)`
+### Attach context inline on `.to(_:extras:)`
 
 ```swift
 do {
     try charge(order)
 } catch {
-    // .extras(dict)         structured fields attached to the report; call it
-    //                       BEFORE .to, or pass inline as .to(outcome, extras:).
-    //                       (private attributes are stripped before egress)
-    see(error).causesThe("checkout").extras(["order_id": orderId]).to("use cached prices")
-
-    // equivalent — extras folded into the terminal, no ordering to remember:
+    // .to(outcome, extras:) PREFERRED: terminal + extras in one call (private
+    //                       attributes are stripped before egress). The
+    //                       consequence sentence stays whole and there is no
+    //                       ordering to remember.
     see(error).causesThe("checkout").to("use cached prices", extras: ["order_id": orderId])
+
+    // .to returns Void, so extras cannot trail the terminal in Swift.
+
+    // NEVER: extras wedged between the subject and the outcome — it splits the
+    // consequence sentence in half and is hard to read.
+    // see(error).causesThe("checkout").extras(["order_id": orderId]).to("use cached prices")
 }
 ```
 

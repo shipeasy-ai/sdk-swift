@@ -7,10 +7,9 @@ event is tagged with the side `"client"`.
 
 ## The chain
 
-`see(error).causesThe(subject).to(outcome)` — `to(_:)` is the **terminal**: it
-builds the wire event and fire-and-forgets the report. Nothing sends without it.
-`causesThe(_:)` and `extras(_:)` are chainable setters callable in any order
-*before* `to(_:)`.
+`see(error).causesThe(subject).to(outcome, extras:)` — `to(_:extras:)` is the
+**terminal**: it builds the wire event and fire-and-forgets the report. Nothing
+sends without it.
 
 The package-level `see(_:)` reports against the client built by
 `configureClient(...)`:
@@ -21,17 +20,32 @@ do {
 } catch {
     see(error)
         .causesThe("checkout")
-        .extras(["order_id": order.id])
-        .to("use cached prices")
+        .to("use cached prices", extras: ["order_id": order.id])
 }
 ```
 
-You can also fold the extras into the terminal as `to(_:extras:)`, so there is no
-ordering to remember — the inline extras merge like a final `.extras(...)` (later
-wins on a shared key):
+### Where extras go in the chain
+
+`causesThe(_:)` and `to(_:)` are two halves of one sentence and must stay
+adjacent, so fold the extras into the terminal (they merge like a final
+`.extras(...)`, later wins on a shared key):
 
 ```swift
+// PREFERRED — the consequence reads as one sentence:
 see(error).causesThe("checkout").to("use cached prices", extras: ["order_id": order.id])
+```
+
+`to(_:)` returns `Void`, so extras cannot trail the terminal in Swift. And never
+split the sentence with `extras(_:)` — the standalone setter still exists, but
+reach for it only when you genuinely cannot pass the context inline:
+
+```swift
+// WON'T COMPILE — to(_:) returns Void:
+// see(error).causesThe("checkout").to("use cached prices").extras(["order_id": order.id])
+
+// WRONG — extras wedged between the subject and the outcome. You read
+// "checkout … order_id … use cached prices" and lose the consequence.
+// see(error).causesThe("checkout").extras(["order_id": order.id]).to("use cached prices")
 ```
 
 If `see()` is called before `configureClient(...)` has run, the error is dropped
@@ -45,8 +59,7 @@ Report a problem that isn't an `Error`. The `name` is a **stable fingerprint key
 ```swift
 seeViolation("large query")
     .causesThe("search results")
-    .extras(["row_count": rows.count])
-    .to("be trimmed")
+    .to("be trimmed", extras: ["row_count": rows.count])
 ```
 
 ## Expected control flow — reports nothing
