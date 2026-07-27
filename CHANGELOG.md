@@ -15,6 +15,13 @@ This is a breaking change to the **`ShipeasyAdmin` library product only**. The
 reads, `universe(_:).assign()`, `track`, and `see()` — is untouched. If you only
 `import Shipeasy`, nothing changes for you.
 
+### Fixed: `ShipeasyAdmin` did not compile
+
+Removing the `chunk` field from `PushI18nKeysResponse` left a trailing comma in
+its generated `init(...)` parameter list, so the whole `ShipeasyAdmin` target
+failed to parse (`unexpected ',' separator`). Every CI run since that change has
+been red, and 2.3.0 was the last version that built from a clean checkout.
+
 ### Docs: where `see()` extras go in the chain
 
 `causesThe(subject)` and `to(outcome)` are two halves of one sentence, so the

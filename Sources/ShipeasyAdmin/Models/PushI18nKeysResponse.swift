@@ -22,7 +22,7 @@ public struct PushI18nKeysResponse: Codable, JSONEncodable {
     /** Number of keys skipped (== `skipped.length`). */
     public var skippedCount: Double
 
-    public init(added: [String], skipped: [String], pushedCount: Double, skippedCount: Double, ) {
+    public init(added: [String], skipped: [String], pushedCount: Double, skippedCount: Double) {
         self.added = added
         self.skipped = skipped
         self.pushedCount = pushedCount
