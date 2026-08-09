@@ -25,7 +25,7 @@ resolves for logged-out users without an explicit `identify`.
 | `isNetworkEnabled`  | env-derived (see below) | Master egress switch. When `false` the client is fully **offline** — no `/sdk/evaluate`, no `/collect` (`track` / exposures / `see()`), no telemetry; reads serve the cache / supplied defaults. Leave `nil` to use the environment default; pass `true` / `false` to force it. |
 | `isTrackingEnabled` | env-derived (see below) | Usage telemetry on/off (the per-evaluation usage beacon). Leave `nil` for the environment default; pass `false` to keep it off while the network stays on. Forced off whenever `isNetworkEnabled` is off. |
 | `telemetryURL`      | `https://t.shipeasy.ai` | Where telemetry POSTs go. |
-| `store`             | `UserDefaultsAnonymousStore()` | Where the persistent `anonymous_id` lives. Supply your own `AnonymousStore` for the Keychain / app-group / tests — see [advanced](advanced.md#anonymous-id-persistence-anonymousstore). |
+| `store`             | `UserDefaultsAnonymousStore()` | Where the persistent `anonymous_id` lives. Supply your own `AnonymousStore` for the Keychain / app-group / tests — see [advanced](advanced.md#anonymous-id-persistence--anonymousstore). |
 | `privateAttributes` | `[]`    | Attribute names usable for targeting but stripped from outbound `track()` / `see()` payloads. See [advanced](advanced.md#private-attributes). |
 | `session`           | shared `URLSession` | Optional `URLSession` for the HTTP calls. |
 | `transport`         | `URLSession`-backed | Optional low-level request transport. Injecting a stub is how tests run hermetically — see [testing](testing.md). |
@@ -115,5 +115,5 @@ The stable device id is exposed as `await shipeasyClient()?.anonymousId`. It is
 minted once and **persisted** via the `store` so it survives cold starts. This is
 what keeps a logged-out visitor in the same bucket for every fractional rollout
 and experiment on every launch. See
-[advanced](advanced.md#anonymous-id-persistence-anonymousstore) to back it with
+[advanced](advanced.md#anonymous-id-persistence--anonymousstore) to back it with
 the Keychain or an app-group container.

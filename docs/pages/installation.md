@@ -126,7 +126,7 @@ configureClient(clientKey: "pk_live_…", store: KeychainAnonStore())
 
 `get`/`set` are synchronous and best-effort — a throwing or slow backing store
 degrades gracefully and never crashes a read. See
-[advanced](advanced.md#anonymous-id-persistence-anonymousstore) for the full detail.
+[advanced](advanced.md#anonymous-id-persistence--anonymousstore) for the full detail.
 
 ---
 
