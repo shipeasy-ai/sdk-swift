@@ -14,7 +14,7 @@ every other page assumes it has already run once at app launch.
 Add the package to your `Package.swift` dependencies:
 
 ```bash
-.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "1.0.0")
+.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "3.0.0")
 ```
 
 ### SwiftPM — `Package.swift`
@@ -23,7 +23,7 @@ The full dependency + target wiring:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "1.0.0"),
+    .package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "3.0.0"),
 ]
 ```
 

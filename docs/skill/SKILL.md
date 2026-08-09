@@ -21,7 +21,7 @@ i18n** in this SDK.
 
 ```swift
 // Package.swift
-.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "1.0.0"),
+.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "3.0.0"),
 ```
 
 ```swift

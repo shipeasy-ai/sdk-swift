@@ -66,6 +66,10 @@ embedded skill drifts.
 - Bump **both** the `VERSION` file and `SDK_VERSION` in `Sources/Shipeasy/See.swift`
   (kept in sync — `SDK_VERSION` is sent on every `see()` event), and add a
   `CHANGELOG.md` entry.
+- Bump the `from:` in the SwiftPM snippets too — `README.md`,
+  `docs/pages/installation.md`, `docs/skill/SKILL.md`. `from: "x"` resolves to
+  `>=x <x+1`, so a stale one does not merely look old: it pins every reader to
+  an old major and keeps them there. It said `1.0.0` through all of 2.x and 3.x.
 - Publishing is **push-to-`main`**: the publish workflow self-tags `v$VERSION` and
   SwiftPM serves the tag. A version-bumped push to `main` IS the release.
 
