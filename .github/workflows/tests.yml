@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
       - name: Swift version
@@ -33,7 +33,7 @@ jobs:
         run: swift test
 
   readme:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
       - name: README + embedded skill are generated from docs/ — check they're in sync
