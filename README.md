@@ -40,7 +40,7 @@ doc page and snippet is also fetchable by URL — start from the manifest at
 ## Install
 
 ```bash
-.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "3.0.0")
+.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "3.1.0")
 ```
 
 Where to call `configureClient()` (App / `@main` / SceneDelegate) and how to plug

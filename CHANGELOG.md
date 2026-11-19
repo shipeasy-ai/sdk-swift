@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.1.0 — 2026-11-19
+
+### Added: link an app error to the server exception behind it
+
+Ingest joins an app error report and a server error report that share a
+`correlation_id`, and records the server exception as the app error's cause. The
+server SDKs read the token from the `X-SE-Correlation` request header; until now
+the Swift client had no way to send it, so an iOS app's errors never linked to
+the backend exception behind them.
+
+- `correlate(_ request: URLRequest) -> (request: URLRequest, correlationId: String)`
+  returns a copy of the request with a fresh `X-SE-Correlation` UUID header, plus
+  that token.
+- `SeeChain.correlated(with:)` puts the token on the report, which then carries
+  `correlation_id`. A nil or malformed token (not `^[A-Za-z0-9-]{8,64}$`) is
+  dropped; `correlation_id` is omitted unless a valid token was set.
+
+Explicit by design: the SDK does not swizzle `URLSession`. Correlate only the
+requests you make to your own backend.
+
 ## 3.0.0 — 2026-07-27
 
 ### BREAKING: `ShipeasyAdmin` drops the i18n `chunk` concept

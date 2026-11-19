@@ -21,7 +21,7 @@ i18n** in this SDK.
 
 ```swift
 // Package.swift
-.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "1.0.0"),
+.package(url: "https://github.com/shipeasy-ai/sdk-swift.git", from: "3.1.0"),
 ```
 
 ```swift
@@ -150,6 +150,14 @@ controlFlowException(error).because("expected — token expiry is normal") // re
 extras cannot trail it — `to(_:extras:)` folds them in. Package-level `see(_:)` /
 `seeViolation(_:)`
 dispatch through the configured client (side `"client"`).
+
+To link an app error to the server exception behind it, send the request through
+`let (request, correlationId) = correlate(urlRequest)` (adds a fresh
+`X-SE-Correlation` UUID header the server SDKs read) and report a failure with
+`see(error).correlated(with: correlationId).causesThe("feed").to("show the cached feed")`
+— the event then carries `correlation_id`. No URLSession swizzling: correlate
+only requests to your own backend; a malformed token is dropped.
+
 Reference: <https://shipeasy-ai.github.io/sdk-swift/pages/error-reporting.md> ·
 snippet <https://shipeasy-ai.github.io/sdk-swift/snippets/ops/see.md>
 

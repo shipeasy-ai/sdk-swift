@@ -36,6 +36,21 @@ do {
 }
 ```
 
+### Link an app error to the server exception behind it
+
+```swift
+// correlate(_:) adds a fresh X-SE-Correlation header (read by the server SDKs)
+// and returns the token; .correlated(with:) puts it on the report as
+// correlation_id so the backend exception is recorded as this error's cause.
+let (request, correlationId) = correlate(URLRequest(url: feedURL))
+do {
+    let (data, _) = try await URLSession.shared.data(for: request)
+    feed = try decode(data)
+} catch {
+    see(error).correlated(with: correlationId).causesThe("feed").to("show the cached feed")
+}
+```
+
 ### Report a non-exception violation
 
 ```swift
