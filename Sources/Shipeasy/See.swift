@@ -1,5 +1,10 @@
 import Foundation
 
+// URLRequest lives in FoundationNetworking on non-Apple platforms (Linux).
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - see() structured error reporting
 //
 // Mirrors `@shipeasy/sdk` (`packages/ts-sdk/src/see/core.ts`) and the Python
@@ -34,7 +39,7 @@ let SEE_MAX_PER_PROCESS = 25
 /// SDK version, single source for the `sdk_version` wire field. Bumped in lockstep
 /// with the `VERSION` file (SwiftPM publishes by git tag, so no compile-time read
 /// of `VERSION` exists — this constant IS the source the event reports).
-public let SDK_VERSION = "3.0.0"
+public let SDK_VERSION = "3.1.0"
 
 private let SEE_DEFAULT_SUBJECT = "app"
 private let SEE_DEFAULT_OUTCOME = "hit an error"
@@ -88,6 +93,56 @@ func sanitizeExtras(_ extras: [String: Any]?) -> [String: Any]? {
     return out.isEmpty ? nil : out
 }
 
+// MARK: Cross-network correlation
+//
+// Ingest joins an app error report and a server error report that share a
+// `correlation_id`, and records the server exception as the app error's cause.
+// The server SDKs read that token from the `X-SE-Correlation` request header.
+// The browser SDK patches `fetch`/XHR to do this automatically; the native
+// client deliberately does NOT swizzle URLSession. Instead it is explicit:
+//
+//     let (request, correlationId) = correlate(URLRequest(url: apiURL))
+//     do {
+//         let (data, response) = try await URLSession.shared.data(for: request)
+//         …
+//     } catch {
+//         see(error).correlated(with: correlationId).causesThe("feed").to("show the cached feed")
+//     }
+
+/// Request header the server SDKs read the correlation token from.
+let SEE_CORRELATION_HEADER = "X-SE-Correlation"
+/// Correlation token length cap — bounds the join keyspace. Mirrored server-side.
+let SEE_MAX_CORRELATION = 64
+
+/// `^[A-Za-z0-9-]{8,64}$` — the token shape ingest accepts. Checked by hand
+/// (ASCII scalars) so it behaves identically on Apple and Linux Foundation.
+func isValidCorrelationId(_ token: String) -> Bool {
+    let scalars = token.unicodeScalars
+    guard scalars.count >= 8, scalars.count <= SEE_MAX_CORRELATION else { return false }
+    for u in scalars {
+        switch u.value {
+        case 0x30...0x39, 0x41...0x5A, 0x61...0x7A, 0x2D: continue // 0-9 A-Z a-z -
+        default: return false
+        }
+    }
+    return true
+}
+
+/// Correlate a request your app makes to its own backend.
+///
+/// Returns a copy of `request` carrying a fresh `X-SE-Correlation` UUID header,
+/// plus that token. Send the returned request; if it fails, pass the token to
+/// ``SeeChain/correlated(with:)`` so the app's error report links to the server
+/// exception behind it. Any existing `X-SE-Correlation` value is replaced — one
+/// token per request. Only correlate requests to your own backend (the one
+/// running a Shipeasy server SDK), never third-party hosts.
+public func correlate(_ request: URLRequest) -> (request: URLRequest, correlationId: String) {
+    let token = UUID().uuidString
+    var copy = request
+    copy.setValue(token, forHTTPHeaderField: SEE_CORRELATION_HEADER)
+    return (copy, token)
+}
+
 /// A non-exception problem. The name is a stable fingerprint key — put variable
 /// data in `.extras()`, never in the name.
 public struct Violation: Sendable {
@@ -113,7 +168,8 @@ func buildSeeEvent(
     extras: [String: Any]?,
     side: String,
     sdkVersion: String,
-    env: String?
+    env: String?,
+    correlationId: String? = nil
 ) -> [String: Any] {
     let errorType: String
     let message: String
@@ -165,6 +221,11 @@ func buildSeeEvent(
     if let stack { ev["stack"] = seeTruncate(stack, SEE_MAX_STACK) }
     if let clean = sanitizeExtras(extras) { ev["extras"] = clean }
     if let env, !env.isEmpty { ev["env"] = env }
+    // Only a well-formed token is emitted; anything else is dropped so ingest
+    // never joins on garbage.
+    if let correlationId, isValidCorrelationId(correlationId) {
+        ev["correlation_id"] = correlationId
+    }
     return ev
 }
 
@@ -220,6 +281,7 @@ struct SeeBuilt: @unchecked Sendable {
     let subject: String
     let outcome: String
     let extras: [String: Any]?
+    var correlationId: String? = nil
 }
 
 // MARK: Fluent chains
@@ -232,6 +294,7 @@ public final class SeeChain {
     private var subject: String?
     private var outcome: String?
     private var extras: [String: Any]?
+    private var correlationId: String?
     private var done = false
 
     init(problem: SeeProblem, client: ShipeasyClient?) {
@@ -242,6 +305,22 @@ public final class SeeChain {
     @discardableResult
     public func causesThe(_ subject: String) -> SeeChain {
         self.subject = subject
+        return self
+    }
+
+    /// Link this report to the server exception behind it: pass the token
+    /// ``correlate(_:)`` returned for the failed request. The event then carries
+    /// `correlation_id`, and ingest records the matching server error as its
+    /// cause. A nil or malformed token (not `^[A-Za-z0-9-]{8,64}$`) is dropped
+    /// and the report is sent uncorrelated. May be called before `to(_:)`.
+    @discardableResult
+    public func correlated(with correlationId: String?) -> SeeChain {
+        guard let correlationId else { return self }
+        if isValidCorrelationId(correlationId) {
+            self.correlationId = correlationId
+        } else {
+            Log.warn("see().correlated(with:) ignored a malformed correlation id")
+        }
         return self
     }
 
@@ -279,7 +358,8 @@ public final class SeeChain {
             problem: problem,
             subject: subject ?? SEE_DEFAULT_SUBJECT,
             outcome: outcome.isEmpty ? SEE_DEFAULT_OUTCOME : outcome,
-            extras: self.extras
+            extras: self.extras,
+            correlationId: correlationId
         )
         Task { await client._dispatchSee(built) }
     }

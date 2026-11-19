@@ -151,6 +151,72 @@ final class SeeTests: ShipeasyProdEnvTestCase {
         XCTAssertEqual(extras?["ok"] as? String, "yes")
     }
 
+    // MARK: Cross-network correlation (X-SE-Correlation)
+
+    func testCorrelateInjectsFreshHeaderAndReturnsToken() {
+        var original = URLRequest(url: URL(string: "https://api.example.com/feed")!)
+        original.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (req, token) = correlate(original)
+        XCTAssertEqual(req.value(forHTTPHeaderField: "X-SE-Correlation"), token)
+        XCTAssertTrue(isValidCorrelationId(token))
+        XCTAssertNotNil(UUID(uuidString: token))
+        // Other headers and the URL are preserved; the original is untouched.
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(req.url, original.url)
+        XCTAssertNil(original.value(forHTTPHeaderField: "X-SE-Correlation"))
+        // One token per request — correlating again replaces it.
+        let (req2, token2) = correlate(req)
+        XCTAssertNotEqual(token, token2)
+        XCTAssertEqual(req2.value(forHTTPHeaderField: "X-SE-Correlation"), token2)
+    }
+
+    func testCorrelatedEventCarriesCorrelationId() async {
+        let (_, token) = correlate(URLRequest(url: URL(string: "https://api.example.com/feed")!))
+        let events = await withClient(expectEvents: 1) { c in
+            c.see(Boom(description: "502")).correlated(with: token)
+                .causesThe("feed").to("show the cached feed")
+        }
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0]["correlation_id"] as? String, token)
+    }
+
+    func testUncorrelatedEventOmitsCorrelationId() async {
+        let events = await withClient(expectEvents: 1) { c in
+            c.see(Boom(description: "x")).correlated(with: nil)
+                .causesThe("feed").to("show the cached feed")
+        }
+        XCTAssertEqual(events.count, 1)
+        XCTAssertNil(events[0]["correlation_id"])
+    }
+
+    func testMalformedCorrelationIdIsDropped() async {
+        let events = await withClient(expectEvents: 1) { c in
+            c.see(Boom(description: "x")).correlated(with: "bad token!")
+                .causesThe("feed").to("show the cached feed")
+        }
+        XCTAssertEqual(events.count, 1)
+        XCTAssertNil(events[0]["correlation_id"])
+    }
+
+    func testCorrelationIdValidation() {
+        XCTAssertTrue(isValidCorrelationId("abcd1234"))
+        XCTAssertTrue(isValidCorrelationId(UUID().uuidString))
+        XCTAssertTrue(isValidCorrelationId(String(repeating: "a", count: 64)))
+        XCTAssertFalse(isValidCorrelationId("short"))                         // < 8
+        XCTAssertFalse(isValidCorrelationId(String(repeating: "a", count: 65))) // > 64
+        XCTAssertFalse(isValidCorrelationId("has space1"))
+        XCTAssertFalse(isValidCorrelationId("under_score"))
+        XCTAssertFalse(isValidCorrelationId("ünicode-123"))
+        XCTAssertFalse(isValidCorrelationId(""))
+        // buildSeeEvent drops a malformed id even if one slips past the chain.
+        let ev = buildSeeEvent(
+            .message("m"), subject: "s", outcome: "o", extras: nil,
+            side: "client", sdkVersion: SDK_VERSION, env: nil,
+            correlationId: "not valid!"
+        )
+        XCTAssertNil(ev["correlation_id"])
+    }
+
     // MARK: Pure-function / no-network cases
 
     func testControlFlowMarksAndReportsNothing() async {

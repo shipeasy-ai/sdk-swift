@@ -449,7 +449,8 @@ public actor ShipeasyClient {
             extras: built.extras.map(stripPrivate),
             side: "client",
             sdkVersion: SDK_VERSION,
-            env: env
+            env: env,
+            correlationId: built.correlationId
         )
         if !seeLimiter.shouldSend(ev) { return }
         if let seeSink {

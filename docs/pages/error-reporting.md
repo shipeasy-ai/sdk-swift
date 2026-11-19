@@ -51,6 +51,35 @@ reach for it only when you genuinely cannot pass the context inline:
 If `see()` is called before `configureClient(...)` has run, the error is dropped
 (with a note to stderr).
 
+## Linking an app error to the server exception behind it
+
+When a request to your own backend fails, the app's report and the server's
+report can be joined so the server exception shows up as the app error's cause.
+`correlate(_:)` returns a copy of a `URLRequest` carrying a fresh
+`X-SE-Correlation` UUID header (the header the Shipeasy server SDKs read) plus
+that token; pass the token to `.correlated(with:)` on the chain and the event
+carries `correlation_id`:
+
+```swift
+let (request, correlationId) = correlate(URLRequest(url: apiURL.appendingPathComponent("feed")))
+do {
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw FeedError.badStatus }
+    feed = try decode(data)
+} catch {
+    see(error)
+        .correlated(with: correlationId)
+        .causesThe("feed")
+        .to("show the cached feed")
+}
+```
+
+The SDK does not patch `URLSession` — correlate only the requests you choose, and
+only to your own backend (never third-party hosts). One token per request: call
+`correlate(_:)` again for each one. A nil or malformed token (anything not
+matching `^[A-Za-z0-9-]{8,64}$`) is dropped and the report is sent uncorrelated;
+`correlation_id` is omitted unless a valid token was set.
+
 ## Non-exception problems — `seeViolation`
 
 Report a problem that isn't an `Error`. The `name` is a **stable fingerprint key**
